@@ -1,0 +1,51 @@
+# ---- Rust 后端 ----
+/target
+*.pdb
+
+# Cargo.lock 已提交（应用/二进制项目建议提交以锁定依赖版本）
+
+# ---- 前端（React/Vite） ----
+/frontend/node_modules/
+/frontend/dist/
+/frontend/.vite/
+/frontend/*.tsbuildinfo
+/frontend/.eslintcache
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---- SQLite 数据库文件（含 WAL/SHM 与常见扩展名） ----
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.sqlite-shm
+*.sqlite-wal
+
+# ---- 环境变量与密钥 ----
+.env
+.env.*
+!.env.example
+
+# ---- 日志 ----
+*.log
+logs/
+
+# ---- 编辑器 / IDE ----
+.idea/
+.vscode/
+*.swp
+*.swo
+*.tmp
+
+# ---- 操作系统 ----
+.DS_Store
+Thumbs.db
+
+# ---- 杂项 ----
+.coverage/
+coverage/
+*.orig
+*.rej

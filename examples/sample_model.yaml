@@ -1,0 +1,108 @@
+# Ossie Studio 示例模型：电商零售分析
+# 可在前端「导入」或调用 POST /api/repos/:id/import 载入。
+version: "0.2.0.dev0"
+name: ecommerce_retail
+description: E-commerce sales and customer analytics
+
+ontology:
+  - concept: Person
+    type: EntityType
+    identify_by: [nr]
+    relationships:
+      - name: nr
+        roles:
+          - concept: SSN
+        multiplicity: OneToOne
+        verbalizes: ["{Person} is identified by {SSN}"]
+      - name: earns
+        roles:
+          - concept: Salary
+        multiplicity: ManyToOne
+        verbalizes: ["{Person} earns {Salary}"]
+  - concept: SSN
+    type: ValueType
+    extends: [String]
+    requires:
+      - "LENGTH(SSN) = 9"
+  - concept: Salary
+    type: ValueType
+    extends: [Decimal]
+  - concept: Employee
+    type: EntityType
+    extends: [Person]
+    derived_by: ["EXISTS ( Person.earns )"]
+
+semantic_model:
+  - name: ecommerce_retail
+    description: Sales and customer analytics model
+    datasets:
+      - name: orders
+        source: sales.public.orders
+        primary_key: [order_id]
+        description: Customer orders
+        fields:
+          - name: order_id
+            expression:
+              dialects:
+                - dialect: ANSI_SQL
+                  expression: order_id
+            datatype: Integer
+          - name: customer_id
+            expression:
+              dialects:
+                - dialect: ANSI_SQL
+                  expression: customer_id
+            datatype: Integer
+          - name: order_date
+            expression:
+              dialects:
+                - dialect: ANSI_SQL
+                  expression: order_date
+            datatype: Date
+            dimension:
+              is_time: true
+          - name: amount
+            expression:
+              dialects:
+                - dialect: ANSI_SQL
+                  expression: amount
+            datatype: Decimal
+      - name: customers
+        source: sales.public.customers
+        primary_key: [id]
+        description: Customer information
+        fields:
+          - name: id
+            expression:
+              dialects:
+                - dialect: ANSI_SQL
+                  expression: id
+            datatype: Integer
+          - name: email
+            expression:
+              dialects:
+                - dialect: ANSI_SQL
+                  expression: email
+            datatype: String
+    relationships:
+      - name: orders_to_customers
+        from: orders
+        to: customers
+        from_columns: [customer_id]
+        to_columns: [id]
+    metrics:
+      - name: total_revenue
+        expression:
+          dialects:
+            - dialect: ANSI_SQL
+              expression: SUM(orders.amount)
+        description: Total revenue from all orders
+        datatype: Decimal
+      - name: customer_count
+        expression:
+          dialects:
+            - dialect: ANSI_SQL
+              expression: COUNT(DISTINCT customers.id)
+        description: Total number of customers
+        datatype: Integer
+    custom_extensions: []

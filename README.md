@@ -1,0 +1,125 @@
+# Ossie Studio
+
+基于 [Apache Ossie (Incubating)](https://github.com/apache/ossie) 的建模平台。
+
+- 按 **ontology** 规范创建实体（Concept：`EntityType` / `ValueType`）与关系（roles、multiplicity、verbalizes、identify_by、requires、derived_by），提供 ER 画布建模。
+- 按 **semantic** 规范配置数据集、字段、关系、度量，并可一键接入 PostgreSQL 生成/部署语义层（表 + 主键/唯一键/外键 + 度量元数据）。
+- 建模过程内置 **git 式版本控制**：分支、提交、log、diff（含 `HEAD~N`）、reset、三路 merge。
+- 支持与 Ossie 规范互操作的 **YAML / JSON 导入导出**。
+- 存储同时兼容 **SQLite 与 PostgreSQL**（同一套表结构），默认 SQLite，测试全部跑在内存 SQLite 上。
+
+## 技术栈
+
+| 层 | 选型 |
+|----|------|
+| 后端 | Rust + axum + sqlx（Any 驱动：SQLite / PostgreSQL） |
+| 前端 | React 18 + TypeScript + Vite + React Flow（@xyflow/react） |
+| 版本控制 | 自研轻量 VCS（表驱动：branches / commits / working_trees，快照树 + 三路合并） |
+
+## 快速开始
+
+```bash
+# 后端（默认 SQLite: ossie.db，监听 127.0.0.1:8080，自动建库）
+cargo run
+
+# 前端开发模式（另开终端，代理 /api -> 8080）
+cd frontend && npm install && npm run dev
+# 打开 http://localhost:5173
+
+# 生产模式：后端直接托管 frontend/dist（先 npm run build）
+cd frontend && npm run build
+cd .. && cargo run
+# 打开 http://127.0.0.1:8080
+```
+
+### 存储配置
+
+```bash
+# SQLite（默认，文件自动创建）
+DATABASE_URL=sqlite:ossie.db
+
+# PostgreSQL（同一套 schema，启动时自动初始化表结构）
+DATABASE_URL=postgres://user:pass@localhost:5432/ossie
+
+# 端口
+PORT=8080
+```
+
+> 说明：语义层部署目标是另一个 PostgreSQL 连接串（见下），与应用自身存储无关。
+
+### 测试
+
+```bash
+cargo test   # 全部跑在内存 SQLite 上，无需外部数据库
+```
+
+## 功能
+
+### Ontology 建模（ER 画布）
+
+左侧列表 + 中央 React Flow 画布 + 右侧编辑器：
+
+- **实体/值类型**：`type`、`extends`（值类型必须传递地继承内置值类型）、`identify_by`、`requires`、`derived_by`、`description`。
+- **关系**：key 形如 `Person.earns`（owner 即第一角色），支持一元/二元/多元、`roles`（同概念多角色必须用 `name` 区分）、`multiplicity`（`ManyToOne`/`OneToOne`）、`verbalizes`。
+- 画布中实体为蓝色、值类型为绿色，关系为带箭头的边，点击节点/连线即可编辑。
+- 内置校验：概念/关系引用完整性、枚举合法性、值类型继承链、`identify_by` 指向、字段重名、关系列数量一致性等；有错误的快照无法提交。
+
+### Semantic 语义层 + PostgreSQL 部署
+
+- 数据集（`source`、`primary_key`、`unique_keys`、字段的 `datatype`/`is_time`/ANSI_SQL 表达式）、数据集关系（FK）、多方言度量。
+- **预览 DDL**：纯函数生成 PostgreSQL DDL，本地即可查看。
+- **部署**：提供 PostgreSQL 连接串与目标 schema，事务内执行：
+  - 每个 dataset 建一张表（字段列 + 主键/唯一键 + 关系外键；未声明的引用列自动补 TEXT 列并给出校验警告）；
+  - 度量写入 `ossie_metrics`（name/datatype/expression），供查询层消费；
+  - 模型快照写入 `ossie_model`（自描述语义层）。
+
+### Git 式版本控制
+
+- 每个仓库默认 `main` 分支 + 初始提交；工作区即当前分支的编辑快照。
+- 支持：创建/切换/删除分支、提交（校验通过才允许）、历史、任意两个 ref 的 diff（`working` / `head` / 分支名 / 提交 id / `HEAD~N`）、硬重置、三路合并（找共同祖先，冲突时返回冲突工件列表，不落库）。
+- diff 为工件级结构化变更（added/removed/modified）+ 行级 unified 文本。
+
+### 导入导出
+
+- 导出：`GET /api/repos/:id/export?format=yaml|json`，生成符合 Ossie `0.2.0.dev0` 的文档（`ontology` + `semantic_model` 两个 section，关系按概念分组）。
+- 导入：`POST /api/repos/:id/import`，把嵌套的关系拆回工件写入工作区；`examples/sample_model.yaml` 是现成的示例。
+
+## API 一览
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/health` | 健康检查 |
+| POST/GET | `/api/repos` | 创建 / 列出仓库 |
+| GET/DELETE | `/api/repos/{id}` | 仓库详情 / 删除 |
+| GET/POST | `/api/repos/{id}/branches` | 分支列表 / 创建（`from` 支持 `default`、`branch:<名>`、`commit:<id>`） |
+| POST/DELETE | `/api/repos/{id}/branches/{branch}` | 切换 / 删除分支 |
+| GET | `/api/repos/{id}/working` | 工作区快照 + 校验问题 |
+| GET/POST | `/api/repos/{id}/artifacts` | 工件列表 / 创建更新 |
+| GET/PUT/DELETE | `/api/repos/{id}/artifacts/{kind}/{key}` | 单个工件 |
+| GET/POST | `/api/repos/{id}/commits` | 历史 / 提交 |
+| GET | `/api/repos/{id}/commits/{commit}` | 提交详情（含树） |
+| GET | `/api/repos/{id}/diff?from=&to=` | 任意 ref 差异 |
+| POST | `/api/repos/{id}/reset` | 硬重置当前分支 |
+| POST | `/api/repos/{id}/merge` | 三路合并 |
+| GET | `/api/repos/{id}/validate` | 校验当前工作区 |
+| GET | `/api/repos/{id}/export` | 导出 Ossie YAML/JSON |
+| POST | `/api/repos/{id}/import` | 导入 Ossie YAML/JSON |
+| GET | `/api/repos/{id}/semantic/preview?schema=` | 生成语义层 DDL |
+| POST | `/api/repos/{id}/semantic/deploy` | 部署语义层到 PostgreSQL |
+
+工件 kind：`concept`、`ontology_relationship`、`dataset`、`semantic_relationship`、`metric`。
+
+## 与 Apache Ossie 规范的对齐
+
+- 版本对齐 `0.2.0.dev0`（core-spec 与 ontology 规范均为该版本）。
+- 枚举完全照搬：`ConceptType`、`Multiplicity`、`Dialect`、`DataType`、内置概念。
+- 语义模型的结构（datasets/relationships/metrics/custom_extensions）与官方 `spec.md`、`osi-schema.json` 一致；导出文档可直接与官方仓库的 `validation/validate.py` 对照。
+- 关系分组约定（`Concept.relationship` 全名、owner 为第一角色）与 ontology 规范一致。
+- 注意：ontology mappings（`ontology_mappings` / `concept_mappings`）与 expression language 尚未实现，属规划中。
+
+## 当前限制与 Roadmap
+
+- 合并是**工件级**三路合并（无行级冲突解决），冲突时给出冲突工件列表。
+- DDL 部署为幂等建表（`IF NOT EXISTS`）+ upsert 元数据，不含破坏性迁移；重复部署安全。
+- 尚无用户/权限/多租户；作者仅作为提交元数据。
+- 规划：ontology mappings（逻辑层到本体层映射）、语义层反向同步（变更检测/迁移脚本）、行级冲突编辑、OIDC 登录、Ossie 官方 CLI 兼容。
