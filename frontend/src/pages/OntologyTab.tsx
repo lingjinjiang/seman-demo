@@ -16,7 +16,8 @@ import {
   type NodeProps
 } from "@xyflow/react";
 import { api } from "../api";
-import { ConceptForm, OntologyRelForm } from "../components/forms";
+import { ConceptForm, OntologyRelForm, SelectRow, TextRow } from "../components/forms";
+import { Modal } from "../components/Modal";
 import type { Artifact, Issue, WorkingView } from "../types";
 
 // ---------------------------------------------------------------------------
@@ -30,6 +31,11 @@ import type { Artifact, Issue, WorkingView } from "../types";
 //     are numbered #1..#n with * on the determined role;
 //   - self-loop is labelled with the role name; parallel edges carry full names;
 //   - key = identify_by.
+//
+// Navigation model follows the ontology spec (../ossie/ontology/ontology.md):
+// relationships are grouped under the concept that plays their first role, so
+// concepts are the primary navigation and relationships are edited beneath
+// their declaring concept.
 // ---------------------------------------------------------------------------
 
 type ConceptData = {
@@ -197,6 +203,13 @@ function multiplicityChip(m?: string): string | undefined {
   return undefined;
 }
 
+function splitList(s: string): string[] {
+  return s
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
 export function OntologyTab({
   repoId,
   working,
@@ -213,6 +226,13 @@ export function OntologyTab({
   const [error, setError] = useState<string | null>(null);
   const [saveIssues, setSaveIssues] = useState<Issue[]>([]);
   const [showValueTypes, setShowValueTypes] = useState(true);
+
+  // New-concept dialog state.
+  const [newOpen, setNewOpen] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newType, setNewType] = useState("EntityType");
+  const [newExtends, setNewExtends] = useState("");
+  const [newError, setNewError] = useState<string | null>(null);
 
   const concepts = useMemo(
     () => working.artifacts.filter((a) => a.kind === "concept"),
@@ -246,7 +266,8 @@ export function OntologyTab({
           label: c.key,
           kind: c.body.type,
           description: c.body.description,
-          identifying: Array.isArray(c.body.identify_by) && c.body.identify_by.length > 0,
+          identifying:
+            Array.isArray(c.body.identify_by) && c.body.identify_by.length > 0,
           unary: unaryOwners.has(c.key)
         },
         type: "concept"
@@ -311,7 +332,8 @@ export function OntologyTab({
       const source = `concept:${b.owner}`;
       const target = `concept:${b.target}`;
       if (!posById.has(source) || !posById.has(target)) continue;
-      const parallel = (pairCount.get([b.owner, b.target].sort().join("::")) || 0) > 1;
+      const parallel =
+        (pairCount.get([b.owner, b.target].sort().join("::")) || 0) > 1;
       const label = b.selfLoop
         ? b.roleName || b.relName
         : parallel
@@ -380,8 +402,14 @@ export function OntologyTab({
       )
     : undefined;
   const conceptNames = concepts.map((c) => c.key);
+  const entityConcepts = concepts.filter((c) => c.body.type === "EntityType");
+  const valueConcepts = concepts.filter((c) => c.body.type !== "EntityType");
+  const ownedRels =
+    selected?.kind === "concept"
+      ? rels.filter((r) => r.key.startsWith(`${selected.key}.`))
+      : [];
 
-  const save = async (kind: string, key: string, body: any) => {
+  const save = async (kind: string, key: string, body: any): Promise<boolean> => {
     setBusy(true);
     setError(null);
     setSaveIssues([]);
@@ -389,9 +417,11 @@ export function OntologyTab({
       await api.upsertArtifact(repoId, kind, key, body);
       await refresh();
       setSelected({ kind, key });
+      return true;
     } catch (e: any) {
       setError(e.message);
       setSaveIssues(e.issues || []);
+      return false;
     } finally {
       setBusy(false);
     }
@@ -412,7 +442,62 @@ export function OntologyTab({
     }
   };
 
+  const openNewConcept = () => {
+    setNewName("");
+    setNewType("EntityType");
+    setNewExtends("");
+    setNewError(null);
+    setNewOpen(true);
+  };
+
+  const createConcept = async () => {
+    const name = newName.trim();
+    if (!name) {
+      setNewError("概念名称不能为空");
+      return;
+    }
+    if (concepts.some((c) => c.key === name)) {
+      setNewError(`概念 \`${name}\` 已存在`);
+      return;
+    }
+    const extendsList = splitList(newExtends);
+    if (newType === "ValueType" && extendsList.length === 0) {
+      setNewError("值类型必须（传递）继承一个内置值类型，例如 String / Integer");
+      return;
+    }
+    const body: any = { name, type: newType };
+    if (extendsList.length) body.extends = extendsList;
+    const ok = await save("concept", name, body);
+    if (ok) setNewOpen(false);
+  };
+
   const formKey = selected ? `${selected.kind}:${selected.key}` : "none";
+
+  const conceptItem = (c: Artifact) => (
+    <div
+      key={c.key}
+      className={`list-item ${
+        selected?.kind === "concept" && selected.key === c.key ? "selected" : ""
+      }`}
+      onClick={() => setSelected({ kind: "concept", key: c.key })}
+    >
+      <div>
+        {c.key}
+        {Array.isArray(c.body.identify_by) && c.body.identify_by.length > 0 && (
+          <span className="key-badge" title="identify_by">
+            🔑
+          </span>
+        )}
+      </div>
+      <div className="sub">
+        {c.body.extends?.length
+          ? `extends: ${c.body.extends.join(", ")}`
+          : c.body.type === "EntityType"
+            ? "extends: Any"
+            : "extends: —"}
+      </div>
+    </div>
+  );
 
   return (
     <div className="grid-3">
@@ -420,79 +505,30 @@ export function OntologyTab({
         <div className="muted" style={{ marginBottom: 6 }}>
           概念（{concepts.length}）
         </div>
-        {concepts.map((c) => (
-          <div
-            key={c.key}
-            className={`list-item ${
-              selected?.kind === "concept" && selected.key === c.key ? "selected" : ""
-            }`}
-            onClick={() => setSelected({ kind: "concept", key: c.key })}
-          >
-            <div>
-              {c.key}{" "}
-              <span className="badge">
-                {c.body.type === "EntityType" ? "实体" : "值类型"}
-              </span>
-              {Array.isArray(c.body.identify_by) && c.body.identify_by.length > 0 && (
-                <span className="key-badge" title="identify_by">
-                  🔑
-                </span>
-              )}
-            </div>
-            <div className="sub">
-              {c.body.extends?.length ? `extends: ${c.body.extends.join(", ")}` : "extends: Any"}
-            </div>
-          </div>
-        ))}
-        <button
-          style={{ marginTop: 8, width: "100%" }}
-          onClick={() =>
-            setSelected({
-              kind: "concept",
-              key: `new_${concepts.length + 1}`
-            })
-          }
-        >
-          + 新建实体/值类型
-        </button>
 
-        <div className="muted" style={{ margin: "12px 0 6px" }}>
-          关系（{rels.length}）
+        <div className="concept-group">
+          <div className="group-title">实体 · EntityType（{entityConcepts.length}）</div>
+          {entityConcepts.map(conceptItem)}
+          {entityConcepts.length === 0 && (
+            <div className="sub muted">暂无实体</div>
+          )}
         </div>
-        {rels.map((r) => (
-          <div
-            key={r.key}
-            className={`list-item ${
-              selected?.kind === "ontology_relationship" && selected.key === r.key
-                ? "selected"
-                : ""
-            }`}
-            onClick={() =>
-              setSelected({ kind: "ontology_relationship", key: r.key })
-            }
-          >
-            <div>{r.key}</div>
-            <div className="sub">
-              {arityLabel(r.body)}
-              {rolesOf(r.body).length
-                ? ` → ${rolesOf(r.body)
-                    .map((x) => x.concept)
-                    .join(", ")}`
-                : " · 一元事实"}
-              {r.body.multiplicity ? ` · ${r.body.multiplicity}` : ""}
-            </div>
+
+        <div className="concept-group">
+          <div className="group-title">
+            值类型 · ValueType（{valueConcepts.length}）
           </div>
-        ))}
+          {valueConcepts.map(conceptItem)}
+          {valueConcepts.length === 0 && (
+            <div className="sub muted">暂无值类型</div>
+          )}
+        </div>
+
         <button
           style={{ marginTop: 8, width: "100%" }}
-          onClick={() =>
-            setSelected({
-              kind: "ontology_relationship",
-              key: `${conceptNames[0] || "Person"}.new_relationship`
-            })
-          }
+          onClick={openNewConcept}
         >
-          + 新建关系
+          + 新建概念
         </button>
       </div>
 
@@ -534,8 +570,13 @@ export function OntologyTab({
         </ReactFlow>
       </div>
 
-      <div className="panel" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
-        {!selected && <div className="empty">点击左侧列表或画布中的节点/连线进行编辑</div>}
+      <div
+        className="panel"
+        style={{ display: "flex", flexDirection: "column", minHeight: 0 }}
+      >
+        {!selected && (
+          <div className="empty">点击左侧概念或画布节点进行编辑</div>
+        )}
         {selected && (
           <>
             <div className="muted" style={{ marginBottom: 8 }}>
@@ -553,31 +594,137 @@ export function OntologyTab({
             )}
             <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
               {selected.kind === "concept" ? (
-                <ConceptForm
-                  key={formKey}
-                  body={artifact?.body || {}}
-                  busy={busy}
-                  onSave={(key, body) => save("concept", key, body)}
-                  onDelete={() => remove("concept", selected.key)}
-                />
+                <>
+                  <ConceptForm
+                    key={formKey}
+                    body={artifact?.body || {}}
+                    busy={busy}
+                    onSave={(key, body) => save("concept", key, body)}
+                    onDelete={() => remove("concept", selected.key)}
+                  />
+
+                  {/* Relationships are nested under the concept playing the
+                      first role (ontology spec), so they are managed here. */}
+                  <div className="rel-section">
+                    <div className="muted" style={{ marginBottom: 6 }}>
+                      该概念的关系（{ownedRels.length}）
+                    </div>
+                    {ownedRels.map((r) => (
+                      <div
+                        key={r.key}
+                        className="list-item"
+                        onClick={() =>
+                          setSelected({
+                            kind: "ontology_relationship",
+                            key: r.key
+                          })
+                        }
+                      >
+                        <div>{r.key.slice(selected.key.length + 1)}</div>
+                        <div className="sub">
+                          {arityLabel(r.body)}
+                          {rolesOf(r.body).length
+                            ? ` → ${rolesOf(r.body)
+                                .map((x) => x.concept)
+                                .join(", ")}`
+                            : " · 一元事实"}
+                          {r.body.multiplicity ? ` · ${r.body.multiplicity}` : ""}
+                        </div>
+                      </div>
+                    ))}
+                    <button
+                      style={{ marginTop: 6, width: "100%" }}
+                      onClick={() =>
+                        setSelected({
+                          kind: "ontology_relationship",
+                          key: `${selected.key}.new_relationship`
+                        })
+                      }
+                    >
+                      + 新建关系
+                    </button>
+                  </div>
+                </>
               ) : (
-                <OntologyRelForm
-                  key={formKey}
-                  body={
-                    artifact?.body || {
-                      _owner: selected.key.split(".")[0]
+                <>
+                  <button
+                    className="link-back"
+                    onClick={() =>
+                      setSelected({
+                        kind: "concept",
+                        key: selected.key.split(".")[0]
+                      })
                     }
-                  }
-                  concepts={conceptNames}
-                  busy={busy}
-                  onSave={(key, body) => save("ontology_relationship", key, body)}
-                  onDelete={() => remove("ontology_relationship", selected.key)}
-                />
+                  >
+                    ← 返回所属概念 {selected.key.split(".")[0]}
+                  </button>
+                  <OntologyRelForm
+                    key={formKey}
+                    body={
+                      artifact?.body || {
+                        _owner: selected.key.split(".")[0]
+                      }
+                    }
+                    concepts={conceptNames}
+                    busy={busy}
+                    onSave={(key, body) => save("ontology_relationship", key, body)}
+                    onDelete={() => remove("ontology_relationship", selected.key)}
+                  />
+                </>
               )}
             </div>
           </>
         )}
       </div>
+
+      {newOpen && (
+        <Modal title="新建概念" onClose={() => setNewOpen(false)}>
+          <div className="form">
+            <TextRow
+              label="名称（唯一标识）"
+              value={newName}
+              onChange={setNewName}
+              placeholder="例如 Customer / OrderId"
+            />
+            <SelectRow
+              label="类型"
+              value={newType}
+              onChange={(v) => {
+                setNewType(v);
+                if (v === "ValueType" && !newExtends.trim()) setNewExtends("String");
+                if (v === "EntityType" && newExtends.trim() === "String") {
+                  setNewExtends("");
+                }
+              }}
+              options={["EntityType", "ValueType"]}
+            />
+            <TextRow
+              label={
+                newType === "ValueType"
+                  ? "继承内置/值类型（逗号分隔，必填）"
+                  : "继承（extends，逗号分隔，可空）"
+              }
+              value={newExtends}
+              onChange={setNewExtends}
+              placeholder={
+                newType === "ValueType" ? "例如 String / Integer" : "例如 Person"
+              }
+            />
+            <div className="muted" style={{ fontSize: 12 }}>
+              {newType === "ValueType"
+                ? "值类型必须（传递）继承一个内置值类型：Boolean/Date/DateTime/Decimal/Float/Integer/String。"
+                : "实体类型只能继承其他实体类型；留空表示隐式继承 Any。"}
+            </div>
+            {newError && <div className="error-text">{newError}</div>}
+            <div className="modal-actions">
+              <button onClick={() => setNewOpen(false)}>取消</button>
+              <button disabled={busy} onClick={createConcept}>
+                创建
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

@@ -4,6 +4,27 @@
 
 ---
 
+## 2026-09-21 — Ontology 导航模型对齐规范（P4 修订）
+
+反馈「ontology 建模效果不理想」。核对 `../ossie/ontology/ontology.md` 后确认：规范用
+`ontology → concept → relationships` 的层级表示，「relationship 是 concept 下的关键字」，
+关系按**第一角色所在 concept** 分组。原左侧导航把概念与关系并列为两个顶层入口，与规范不符。
+
+**改动（仅导航层，渲染与表单逻辑不变）**
+
+- `frontend/src/pages/OntologyTab.tsx`
+  - 左侧改为纯 concept 导航，并按 ConceptType 分组：`实体 · EntityType` / `值类型 · ValueType`。
+  - **移除左侧「新建关系」入口**；关系归入「所属 concept」之下管理：
+    选中概念后，右侧面板在概念表单下方列出「该概念的关系」，并提供 `+ 新建关系`
+    （owner 即当前概念）。
+  - 新建 concept 改为**弹窗**（名称 / 类型 / extends），带重名校验与类型约束提示；
+    值类型必须继承内置值类型，创建时默认 `String`。
+  - 编辑关系时提供「← 返回所属概念」；画布交互（选中节点/边/hub）保持不变。
+- 新增 `frontend/src/components/Modal.tsx`：可复用弹窗壳。
+- `frontend/src/styles.css`：concept 分组标题、关系区块、返回链接、弹窗标题/操作区样式。
+
+**验证**：`npm run build` 通过；`cargo test` 全绿（后端未改动）。
+
 ## 2026-09-21 — Ontology 建模语义对齐（P4 首轮）
 
 依据 `docs/design/design-ouline.md` §4 与 `docs/design/roadmap.md` P4，把此前「demo 已定义、

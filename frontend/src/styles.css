@@ -199,6 +199,43 @@ textarea {
   font-size: 12px;
 }
 
+/* Concept navigation, grouped by ConceptType. */
+.concept-group .group-title {
+  margin: 10px 0 4px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Relationships nested under the selected concept. */
+.rel-section {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.link-back {
+  margin-bottom: 8px;
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+  font-size: 12.5px;
+}
+
+.modal-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .canvas-wrap {
   position: relative;
   border: 1px solid var(--border);
