@@ -1,4 +1,5 @@
 use crate::model::*;
+use crate::ontology;
 use serde_json::Value;
 use std::collections::HashSet;
 
@@ -22,6 +23,8 @@ pub fn validate_snapshot(snapshot: &Snapshot) -> Vec<Issue> {
             _ => {}
         }
     }
+    // §4.5 equivalence/normalization hints (warnings only, never blocking).
+    ontology::normalization_hints(snapshot, &mut issues);
     issues
 }
 
@@ -195,11 +198,20 @@ fn validate_concept(name: &str, body: &Value, snapshot: &Snapshot, issues: &mut 
     if let Some(id_by) = body.get("identify_by") {
         for r in str_list(id_by) {
             let rel_key = artifact_key(KIND_ONTOLOGY_REL, &format!("{name}.{r}"));
-            if !snapshot.contains_key(&rel_key) {
-                issues.push(Issue::error(
+            match snapshot.get(&rel_key) {
+                None => issues.push(Issue::error(
                     format!("{path}.identify_by"),
                     format!("identifying relationship `{name}.{r}` does not exist"),
-                ));
+                )),
+                // Identifying relationships are always binary and their first
+                // role is always the referent concept (the owner, by key form).
+                Some(rel_body) if ontology::arity(rel_body) != ontology::Arity::Binary => {
+                    issues.push(Issue::error(
+                        format!("{path}.identify_by"),
+                        format!("identifying relationship `{name}.{r}` must be binary"),
+                    ));
+                }
+                Some(_) => {}
             }
         }
     }
@@ -261,6 +273,35 @@ fn validate_ontology_relationship(
                 format!("unknown multiplicity `{m}`; expected {:?}", MULTIPLICITIES),
             ));
         }
+    }
+
+    // §4.2 semantics: multiplicity constrains the last role and only applies
+    // when a relationship has more than one role. Many-to-many is expressed by
+    // leaving multiplicity empty.
+    let arity = ontology::arity(body);
+    let multiplicity = ontology::multiplicity(body);
+    if !ontology::multiplicity_allowed(arity) {
+        if multiplicity.is_some() {
+            issues.push(Issue::error(
+                format!("{path}.multiplicity"),
+                format!(
+                    "{} 关系（仅 owner 一个角色）不能标注 multiplicity",
+                    arity.label()
+                ),
+            ));
+        }
+    } else if let Some(m) = multiplicity {
+        if m == "OneToOne" && !ontology::one_to_one_allowed(arity) {
+            issues.push(Issue::error(
+                format!("{path}.multiplicity"),
+                "OneToOne 仅适用于二元关系；n 元事实请留空 multiplicity",
+            ));
+        }
+    } else if arity == ontology::Arity::Binary {
+        issues.push(Issue::warning(
+            &path,
+            "二元关系未标 multiplicity；确认是否有意为之（多对多请留空）",
+        ));
     }
 
     let mut seen_concepts: Vec<(String, Option<String>)> = vec![(owner.to_string(), None)];
@@ -587,5 +628,109 @@ mod tests {
         let issues = validate_snapshot(&snap);
         assert!(has_errors(&issues));
         assert!(issues.iter().any(|i| i.message.contains("Salary")));
+    }
+
+    #[test]
+    fn unary_relationship_must_not_carry_multiplicity() {
+        let mut snap = Snapshot::new();
+        snap.insert(
+            artifact_key(KIND_CONCEPT, "Person"),
+            json!({"name": "Person", "type": "EntityType"}),
+        );
+        snap.insert(
+            artifact_key(KIND_ONTOLOGY_REL, "Person.files_joint"),
+            json!({
+                "name": "files_joint",
+                "multiplicity": "ManyToOne",
+                "roles": [],
+                "verbalizes": ["{Person} files joint"]
+            }),
+        );
+        let issues = validate_snapshot(&snap);
+        assert!(has_errors(&issues));
+        assert!(issues.iter().any(|i| i.path.ends_with("multiplicity")));
+    }
+
+    #[test]
+    fn binary_relationship_without_multiplicity_warns() {
+        let mut snap = Snapshot::new();
+        snap.insert(
+            artifact_key(KIND_CONCEPT, "Person"),
+            json!({"name": "Person", "type": "EntityType"}),
+        );
+        snap.insert(
+            artifact_key(KIND_CONCEPT, "Book"),
+            json!({"name": "Book", "type": "EntityType"}),
+        );
+        snap.insert(
+            artifact_key(KIND_ONTOLOGY_REL, "Person.reads"),
+            json!({
+                "name": "reads",
+                "roles": [{"concept": "Book"}],
+                "verbalizes": ["{Person} reads {Book}"]
+            }),
+        );
+        let issues = validate_snapshot(&snap);
+        assert!(!has_errors(&issues));
+        assert!(issues
+            .iter()
+            .any(|i| i.level == "warning" && i.message.contains("multiplicity")));
+    }
+
+    #[test]
+    fn one_to_one_is_binary_only() {
+        let mut snap = Snapshot::new();
+        snap.insert(
+            artifact_key(KIND_CONCEPT, "Person"),
+            json!({"name": "Person", "type": "EntityType"}),
+        );
+        snap.insert(
+            artifact_key(KIND_CONCEPT, "Store"),
+            json!({"name": "Store", "type": "EntityType"}),
+        );
+        snap.insert(
+            artifact_key(KIND_CONCEPT, "NrDays"),
+            json!({"name": "NrDays", "type": "ValueType", "extends": ["Integer"]}),
+        );
+        snap.insert(
+            artifact_key(KIND_ONTOLOGY_REL, "Person.ships_to_in_days"),
+            json!({
+                "name": "ships_to_in_days",
+                "multiplicity": "OneToOne",
+                "roles": [{"concept": "Store"}, {"concept": "NrDays"}],
+                "verbalizes": ["{Person} ships to {Store} in {NrDays}"]
+            }),
+        );
+        let issues = validate_snapshot(&snap);
+        assert!(has_errors(&issues));
+        assert!(issues.iter().any(|i| i.message.contains("OneToOne")));
+    }
+
+    #[test]
+    fn identifying_relationship_must_be_binary() {
+        let mut snap = Snapshot::new();
+        snap.insert(
+            artifact_key(KIND_CONCEPT, "Person"),
+            json!({"name": "Person", "type": "EntityType", "identify_by": ["nr"]}),
+        );
+        snap.insert(
+            artifact_key(KIND_CONCEPT, "Store"),
+            json!({"name": "Store", "type": "EntityType"}),
+        );
+        snap.insert(
+            artifact_key(KIND_CONCEPT, "NrDays"),
+            json!({"name": "NrDays", "type": "ValueType", "extends": ["Integer"]}),
+        );
+        snap.insert(
+            artifact_key(KIND_ONTOLOGY_REL, "Person.nr"),
+            json!({
+                "name": "nr",
+                "roles": [{"concept": "Store"}, {"concept": "NrDays"}],
+                "verbalizes": ["{Person} {Store} {NrDays}"]
+            }),
+        );
+        let issues = validate_snapshot(&snap);
+        assert!(has_errors(&issues));
+        assert!(issues.iter().any(|i| i.message.contains("must be binary")));
     }
 }

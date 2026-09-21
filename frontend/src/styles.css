@@ -200,6 +200,7 @@ textarea {
 }
 
 .canvas-wrap {
+  position: relative;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--panel);
@@ -366,12 +367,23 @@ textarea {
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
 }
 
+/* EntityType: large, solid node. */
 .concept-node.entity {
+  min-width: 180px;
+  padding: 12px 16px;
   border-left: 4px solid var(--accent);
+  border-style: solid;
 }
 
+/* ValueType: small, light node. */
 .concept-node.value {
+  min-width: 120px;
+  padding: 6px 10px;
+  background: rgba(53, 201, 160, 0.08);
+  border: 1px dashed var(--accent-2);
   border-left: 4px solid var(--accent-2);
+  box-shadow: none;
+  font-size: 12px;
 }
 
 .concept-node .cname {
@@ -381,6 +393,87 @@ textarea {
 .concept-node .ctype {
   color: var(--muted);
   font-size: 11px;
+}
+
+/* Badges: key = identify_by, flag = unary fact. */
+.key-badge {
+  margin-left: 6px;
+  font-size: 12px;
+}
+
+.unary-badge {
+  margin-left: 6px;
+  color: var(--accent-2);
+  font-size: 12px;
+}
+
+/* n-ary facts render as dashed diamond virtual-entity hubs. */
+.hub-node {
+  width: 96px;
+  height: 96px;
+  transform: rotate(45deg);
+  border: 1.5px dashed #a08ad0;
+  border-radius: 10px;
+  background: rgba(160, 138, 208, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hub-node .hub-inner {
+  transform: rotate(-45deg);
+  text-align: center;
+  max-width: 82px;
+}
+
+.hub-node .cname {
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.hub-node .ctype {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+/* Edge labels: relationship name at midpoint, multiplicity chip at the arrow. */
+.edge-label {
+  position: absolute;
+  pointer-events: none;
+  font-size: 11px;
+  color: var(--text);
+  background: rgba(15, 17, 23, 0.88);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0 6px;
+  white-space: nowrap;
+}
+
+.edge-mult {
+  position: absolute;
+  pointer-events: none;
+  font-size: 10px;
+  font-weight: 700;
+  color: #04110c;
+  background: var(--accent-2);
+  border-radius: 8px;
+  padding: 0 6px;
+}
+
+.canvas-toggle {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  background: rgba(15, 17, 23, 0.85);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
 }
 
 .empty {

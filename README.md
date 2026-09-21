@@ -117,6 +117,28 @@ cargo test   # 全部跑在内存 SQLite 上，无需外部数据库
 - 关系分组约定（`Concept.relationship` 全名、owner 为第一角色）与 ontology 规范一致。
 - 注意：ontology mappings（`ontology_mappings` / `concept_mappings`）与 expression language 尚未实现，属规划中。
 
+## 开发计划跟踪
+
+大方向（分期 P0–P5 与里程碑 M1–M6）由设计文档定义，逐项进度与改动记录放在
+[`docs/dev-plan/`](docs/dev-plan/README.md)：
+
+- 分期与技术选型：[`docs/design/roadmap.md`](docs/design/roadmap.md)
+- 产品设计与建模细则：[`docs/design/design-ouline.md`](docs/design/design-ouline.md)
+- 里程碑状态表：[`docs/dev-plan/milestones.md`](docs/dev-plan/milestones.md)
+- 变更记录：[`docs/dev-plan/changelog.md`](docs/dev-plan/changelog.md)
+
+| 里程碑 | 分期 | 大方向 | 状态 |
+|--------|------|--------|------|
+| M1 | P0 | 与 Ossie spec 基座对齐（枚举、source 逻辑名规则、官方校验 round-trip） | 进行中 |
+| M2 | P1 | 语义查询编译器 + metric 驱动工作流（IR → SQL，扇出隔离） | 未开始 |
+| M3 | P2 | 数据源控制 + Gravitino（环境绑定表、跨环境迁移演练） | 未开始 |
+| M4 | P3 | LLM 问数 Agent（IR 契约、grounding 分层、护栏） | 未开始 |
+| M5 | P4 | Ontology 关系语义 + Mapping（本轮已完成语义引擎/渲染/校验首轮） | 进行中 |
+| M6 | P5 | 治理与生态（OIDC/RBAC/审计、metrics 开放 API） | 未开始 |
+
+> 约定：**设计变更先改 `docs/design/`，进度变更改 `docs/dev-plan/`**；里程碑出口标准以
+> `docs/design/roadmap.md` §5 为准。
+
 ## 当前限制与 Roadmap
 
 - 合并是**工件级**三路合并（无行级冲突解决），冲突时给出冲突工件列表。

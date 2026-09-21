@@ -241,6 +241,26 @@ export function OntologyRelForm({
   const [derivedBy, setDerivedBy] = useState(joinLines(body.derived_by));
   const [description, setDescription] = useState(body.description || "");
 
+  // §4.2: multiplicity only applies when a relationship has more than one role.
+  // OneToOne is defined for binary relationships only; many-to-many stays empty.
+  const arity = 1 + roles.filter((r) => r.concept).length;
+  const multOptions =
+    arity <= 1 ? [] : arity === 2 ? ["ManyToOne", "OneToOne"] : ["ManyToOne"];
+  const effectiveMultiplicity = arity <= 1 ? "" : multiplicity;
+
+  // §4.2: the declaring (owner) side defines the multiplicity direction, so
+  // switching it must warn — the constraint flips with the edge.
+  const changeOwner = (next: string) => {
+    const original = body._owner;
+    if (original && next !== original) {
+      const ok = confirm(
+        `换边会反转约束方向：roles 顺序即语义，声明侧（${original}）定义了 multiplicity 的方向。确定改为 ${next}？`
+      );
+      if (!ok) return;
+    }
+    setOwner(next);
+  };
+
   const save = () =>
     onSave(
       `${owner.trim()}.${name.trim()}`,
@@ -248,7 +268,7 @@ export function OntologyRelForm({
         Object.entries({
           name: name.trim(),
           description: description.trim() || undefined,
-          multiplicity: multiplicity || undefined,
+          multiplicity: effectiveMultiplicity || undefined,
           roles: roles
             .filter((r) => r.concept)
             .map((r) =>
@@ -267,21 +287,27 @@ export function OntologyRelForm({
         <SelectRow
           label="起始概念（owner，第一角色）"
           value={owner}
-          onChange={setOwner}
+          onChange={changeOwner}
           options={concepts}
         />
         <TextRow label="关系名" value={name} onChange={setName} />
       </div>
       <SelectRow
-        label="多重性"
+        label={
+          arity <= 1
+            ? "多重性（一元关系不适用，已禁用）"
+            : arity === 2
+              ? "多重性（多对多请留空）"
+              : "多重性（n 元：约束最后一个角色）"
+        }
         value={multiplicity}
         onChange={setMultiplicity}
-        options={["ManyToOne", "OneToOne"]}
-        placeholder="（可选）"
+        options={multOptions}
+        placeholder={arity <= 1 ? "—" : "（可选：多对多/未约束）"}
       />
       <div>
         <div className="muted" style={{ marginBottom: 6 }}>
-          其他角色（第一个角色即 owner）
+          其他角色（第一个角色即 owner；roles 顺序即语义，无法用角色名区分的同概念多角色必须命名）
         </div>
         {roles.map((r, i) => (
           <div key={i} className="row" style={{ marginBottom: 6 }}>
@@ -305,6 +331,28 @@ export function OntologyRelForm({
                 setRoles(roles.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))
               }
             />
+            <button
+              title="上移（顺序即语义）"
+              disabled={i === 0}
+              onClick={() => {
+                const next = [...roles];
+                [next[i - 1], next[i]] = [next[i], next[i - 1]];
+                setRoles(next);
+              }}
+            >
+              ↑
+            </button>
+            <button
+              title="下移（顺序即语义）"
+              disabled={i === roles.length - 1}
+              onClick={() => {
+                const next = [...roles];
+                [next[i + 1], next[i]] = [next[i], next[i + 1]];
+                setRoles(next);
+              }}
+            >
+              ↓
+            </button>
             <button
               onClick={() => setRoles(roles.filter((_, j) => j !== i))}
               className="danger"
