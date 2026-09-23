@@ -1,244 +1,323 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
-import type { Branch, Commit, Issue, WorkingView } from "../types";
-import { GitTab } from "./GitTab";
-import { OntologyTab } from "./OntologyTab";
-import { SemanticTab } from "./SemanticTab";
+import type { Branch, Commit, Repo, Tenant, WorkingView } from "../types";
+import { DataSourcesPage } from "./DataSourcesPage";
+import { OntologyPage } from "./OntologyPage";
+import { OverviewPage } from "./OverviewPage";
+import { SemanticPage } from "./SemanticPage";
+import { SettingsPage } from "./SettingsPage";
+import { VersionControlPage } from "./VersionControlPage";
 
-type Tab = "ontology" | "semantic" | "git";
+type PageKey =
+  | "overview"
+  | "ontology"
+  | "semantic"
+  | "version"
+  | "dataSources"
+  | "settings";
 
-export function Studio({
-  repoId,
-  onBack
-}: {
-  repoId: string;
-  onBack: () => void;
-}) {
-  const [tab, setTab] = useState<Tab>("ontology");
+const NAV: { group: string; items: { key: PageKey; label: string; icon: string }[] }[] = [
+  {
+    group: "工作区",
+    items: [{ key: "overview", label: "项目概览", icon: "▦" }]
+  },
+  {
+    group: "建模",
+    items: [
+      { key: "ontology", label: "本体", icon: "◈" },
+      { key: "semantic", label: "语义模型", icon: "▤" },
+      { key: "version", label: "版本控制", icon: "⎇" }
+    ]
+  },
+  {
+    group: "平台",
+    items: [
+      { key: "dataSources", label: "数据源", icon: "⛁" },
+      { key: "settings", label: "设置", icon: "⚙" }
+    ]
+  }
+];
+
+export function Studio() {
+  const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [tenant, setTenant] = useState(
+    () => localStorage.getItem("ossie.tenant") || "default"
+  );
+  const [repos, setRepos] = useState<Repo[]>([]);
+  const [repoId, setRepoId] = useState<string>(
+    () => localStorage.getItem("ossie.repo") || ""
+  );
+  const [page, setPage] = useState<PageKey>("overview");
+
   const [working, setWorking] = useState<WorkingView | null>(null);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [commits, setCommits] = useState<Commit[]>([]);
-  const [commitMsg, setCommitMsg] = useState("");
-  const [author, setAuthor] = useState(
-    () => localStorage.getItem("ossie.author") || "developer"
-  );
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
+  // Skip the very first run so a remembered repository survives a page reload.
+  const tenantInitialized = useRef(false);
 
-  const refresh = useCallback(async () => {
+  const loadTenants = useCallback(async () => {
+    try {
+      setTenants(await api.listTenants());
+    } catch (e: any) {
+      setError(e.message);
+    }
+  }, []);
+
+  const loadRepos = useCallback(async (targetTenant: string) => {
+    try {
+      setRepos(await api.listRepos(targetTenant));
+    } catch (e: any) {
+      setError(e.message);
+    }
+  }, []);
+
+  const loadRepoData = useCallback(async (targetRepo: string) => {
+    if (!targetRepo) {
+      setWorking(null);
+      setBranches([]);
+      setCommits([]);
+      return;
+    }
     try {
       const [w, b, c] = await Promise.all([
-        api.getWorking(repoId),
-        api.listBranches(repoId),
-        api.listCommits(repoId)
+        api.getWorking(targetRepo),
+        api.listBranches(targetRepo),
+        api.listCommits(targetRepo)
       ]);
       setWorking(w);
       setBranches(b);
       setCommits(c);
       setError(null);
     } catch (e: any) {
+      setWorking(null);
       setError(e.message);
     }
-  }, [repoId]);
+  }, []);
 
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    loadTenants();
+  }, [loadTenants]);
 
-  const commit = async () => {
-    if (!commitMsg.trim()) return;
-    setBusy(true);
-    setError(null);
-    setNotice(null);
-    try {
-      localStorage.setItem("ossie.author", author);
-      await api.createCommit(repoId, commitMsg.trim(), author || "anonymous");
-      setCommitMsg("");
-      setNotice("已提交");
-      await refresh();
-    } catch (e: any) {
-      setError(e.message);
-      if (e.issues?.length) {
-        setNotice(
-          "校验失败：" +
-            e.issues
-              .filter((i: Issue) => i.level === "error")
-              .map((i: Issue) => i.message)
-              .join("；")
-        );
-      }
-    } finally {
-      setBusy(false);
+  useEffect(() => {
+    localStorage.setItem("ossie.tenant", tenant);
+    loadRepos(tenant);
+    if (tenantInitialized.current) {
+      // Switching tenants invalidates the active repository.
+      setRepoId("");
+      localStorage.removeItem("ossie.repo");
+    } else {
+      tenantInitialized.current = true;
     }
+  }, [tenant, loadRepos]);
+
+  useEffect(() => {
+    if (repoId) localStorage.setItem("ossie.repo", repoId);
+    loadRepoData(repoId);
+  }, [repoId, loadRepoData]);
+
+  // Drop the active repo if it does not belong to the current tenant.
+  useEffect(() => {
+    if (repoId && repos.length && !repos.some((r) => r.id === repoId)) {
+      setRepoId("");
+    }
+  }, [repos, repoId]);
+
+  const refreshRepo = useCallback(async () => {
+    await Promise.all([loadRepoData(repoId), loadRepos(tenant)]);
+  }, [repoId, tenant, loadRepoData, loadRepos]);
+
+  const refreshTenants = useCallback(async () => {
+    await loadTenants();
+  }, [loadTenants]);
+
+  const tenantName = useMemo(
+    () => tenants.find((t) => t.id === tenant)?.name || tenant,
+    [tenants, tenant]
+  );
+
+  const currentRepo = repos.find((r) => r.id === repoId);
+  const repoScoped = page === "ontology" || page === "semantic" || page === "version";
+
+  const errorCount = working
+    ? working.issues.filter((i) => i.level === "error").length
+    : 0;
+  const warnCount = working ? working.issues.length - errorCount : 0;
+
+  const go = (key: PageKey) => {
+    if ((key === "ontology" || key === "semantic" || key === "version") && !repoId) {
+      setPage("overview");
+      return;
+    }
+    setPage(key);
   };
 
-  const switchBranch = async (branchId: string) => {
-    setBusy(true);
-    setError(null);
-    try {
-      await api.checkoutBranch(repoId, branchId);
-      await refresh();
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const newBranch = async () => {
-    const name = prompt("新分支名（字母/数字/-/_/.）");
-    if (!name) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await api.createBranch(repoId, name.trim());
-      await refresh();
-      setNotice(`分支 ${name.trim()} 已创建`);
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const exportYaml = async () => {
-    try {
-      const text = await api.exportYaml(repoId);
-      const blob = new Blob([text], { type: "application/x-yaml" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `${working?.repo.name || "model"}.ossie.yaml`;
-      a.click();
-      URL.revokeObjectURL(a.href);
-    } catch (e: any) {
-      setError(e.message);
-    }
-  };
-
-  const importFile = async (file: File) => {
-    const format = file.name.endsWith(".json") ? "json" : "yaml";
-    const content = await file.text();
-    setBusy(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const out = await api.importDoc(repoId, format, content);
-      setNotice(
-        `已导入 ${out.imported} 个工件` +
-          (out.issues.length ? `（${out.issues.filter((i) => i.level === "error").length} 个错误，${out.issues.filter((i) => i.level === "warning").length} 个警告）` : "")
-      );
-      await refresh();
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  if (!working) {
-    return (
-      <div className="app">
-        <div className="topbar">
-          <button onClick={onBack}>← 返回</button>
-          <span className="title">加载中…</span>
-          {error && <span className="error-text">{error}</span>}
+  const renderPage = () => {
+    if (repoScoped && (!repoId || !working)) {
+      return (
+        <div className="panel panel-pad">
+          <div className="empty">
+            {repos.length === 0
+              ? "当前租户还没有模型仓库，请先在「项目概览」创建"
+              : "请先在上方选择一个模型仓库"}
+          </div>
         </div>
-      </div>
-    );
-  }
-
-  const errCount = working.issues.filter((i) => i.level === "error").length;
+      );
+    }
+    switch (page) {
+      case "overview":
+        return (
+          <OverviewPage
+            tenant={tenant}
+            tenantName={tenantName}
+            repos={repos}
+            refresh={() => loadRepos(tenant)}
+            onOpen={(id) => {
+              setRepoId(id);
+              setPage("ontology");
+            }}
+          />
+        );
+      case "ontology":
+        return (
+          <OntologyPage repoId={repoId} working={working!} refresh={refreshRepo} />
+        );
+      case "semantic":
+        return (
+          <SemanticPage
+            repoId={repoId}
+            tenant={tenant}
+            working={working!}
+            refresh={refreshRepo}
+          />
+        );
+      case "version":
+        return (
+          <VersionControlPage
+            repoId={repoId}
+            working={working!}
+            branches={branches}
+            commits={commits}
+            refresh={refreshRepo}
+          />
+        );
+      case "dataSources":
+        return <DataSourcesPage tenant={tenant} />;
+      case "settings":
+        return (
+          <SettingsPage
+            tenant={tenant}
+            tenants={tenants}
+            refreshTenants={refreshTenants}
+            onSwitchTenant={(id) => setTenant(id)}
+          />
+        );
+      default:
+        return null;
+    }
+  };
 
   return (
-    <div className="app">
-      <div className="topbar" style={{ flexWrap: "wrap" }}>
-        <button onClick={onBack}>← 仓库</button>
-        <span className="title">{working.repo.name}</span>
-        <span className={`badge ${errCount ? "err" : "ok"}`}>
-          {errCount ? `${errCount} 错误` : "校验通过"}
-        </span>
-        <select
-          value={working.branch.id}
-          onChange={(e) => switchBranch(e.target.value)}
-          disabled={busy}
-        >
-          {branches.map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.name}
-              {b.isDefault ? " (main)" : ""}
-            </option>
+    <div className="app-shell">
+      <aside className="sidebar">
+        <div className="sidebar-brand">
+          <div className="logo">O</div>
+          <div>
+            <div className="brand-name">Ossie Studio</div>
+            <div className="brand-sub">Apache Ossie 建模平台</div>
+          </div>
+        </div>
+
+        <div className="sidebar-scroll">
+          {NAV.map((group) => (
+            <div key={group.group}>
+              <div className="nav-group-title">{group.group}</div>
+              {group.items.map((item) => (
+                <div
+                  key={item.key}
+                  className={`nav-item ${page === item.key ? "active" : ""}`}
+                  onClick={() => go(item.key)}
+                >
+                  <span className="nav-icon">{item.icon}</span>
+                  <span>{item.label}</span>
+                  {item.key === "ontology" && working && (
+                    <span className="nav-badge">
+                      {working.artifacts.filter((a) => a.kind === "concept").length}
+                    </span>
+                  )}
+                  {item.key === "semantic" && working && (
+                    <span className="nav-badge">
+                      {
+                        working.artifacts.filter((a) => a.kind === "dataset")
+                          .length
+                      }
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
           ))}
-        </select>
-        <button onClick={newBranch} disabled={busy}>
-          + 分支
-        </button>
-        <span className="spacer" />
-        <input
-          placeholder="提交说明"
-          value={commitMsg}
-          onChange={(e) => setCommitMsg(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && commit()}
-          style={{ width: 260 }}
-        />
-        <input
-          placeholder="作者"
-          value={author}
-          onChange={(e) => setAuthor(e.target.value)}
-          style={{ width: 110 }}
-          title="提交作者"
-        />
-        <button className="primary" onClick={commit} disabled={busy || !commitMsg.trim()}>
-          提交
-        </button>
-        <button onClick={exportYaml} title="导出 Ossie YAML">
-          导出
-        </button>
-        <button onClick={() => fileRef.current?.click()}>导入</button>
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".yaml,.yml,.json"
-          style={{ display: "none" }}
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) importFile(f);
-            e.target.value = "";
-          }}
-        />
-      </div>
-      {error && (
-        <div className="error-text" style={{ padding: "6px 16px" }}>
-          {error}
         </div>
-      )}
-      {notice && (
-        <div className="warn-text" style={{ padding: "6px 16px" }}>
-          {notice}
+
+        <div className="sidebar-footer">
+          OSSIE 0.2.0.dev0 · 仅 PostgreSQL 数据源
         </div>
-      )}
-      <div className="tabs">
-        <button className={tab === "ontology" ? "active" : ""} onClick={() => setTab("ontology")}>
-          Ontology 建模
-        </button>
-        <button className={tab === "semantic" ? "active" : ""} onClick={() => setTab("semantic")}>
-          Semantic 语义层
-        </button>
-        <button className={tab === "git" ? "active" : ""} onClick={() => setTab("git")}>
-          Git 版本控制
-        </button>
-      </div>
-      <div className="content">
-        {tab === "ontology" && (
-          <OntologyTab repoId={repoId} working={working} refresh={refresh} />
-        )}
-        {tab === "semantic" && (
-          <SemanticTab repoId={repoId} working={working} refresh={refresh} />
-        )}
-        {tab === "git" && (
-          <GitTab repoId={repoId} branches={branches} commits={commits} refresh={refresh} />
-        )}
+      </aside>
+
+      <div className="main">
+        <header className="topbar">
+          <div className="field">
+            租户
+            <select value={tenant} onChange={(e) => setTenant(e.target.value)}>
+              {tenants.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            模型仓库
+            <select
+              value={repoId}
+              onChange={(e) => setRepoId(e.target.value)}
+            >
+              <option value="">未选择</option>
+              {repos.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          {working && (
+            <span className="badge">⎇ {working.branch.name}</span>
+          )}
+          {working && (
+            <span className={`badge ${errorCount ? "err" : warnCount ? "warn" : "ok"}`}>
+              {errorCount
+                ? `${errorCount} 错误`
+                : warnCount
+                  ? `${warnCount} 警告`
+                  : "校验通过"}
+            </span>
+          )}
+          <span className="spacer" />
+          {currentRepo && (
+            <span className="muted" style={{ fontSize: 12 }}>
+              更新于 {new Date(currentRepo.updatedAt).toLocaleString()}
+            </span>
+          )}
+        </header>
+
+        <div className="content">
+          {error && (
+            <div className="error-text" style={{ marginBottom: 12 }}>
+              {error}
+            </div>
+          )}
+          {renderPage()}
+        </div>
       </div>
     </div>
   );

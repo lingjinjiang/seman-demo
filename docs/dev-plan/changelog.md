@@ -4,6 +4,79 @@
 
 ---
 
+## 2026-09-23 — 本体页 IA 修正：关系下沉到概念之下
+
+反馈「关系不应该和概念平级，关系应该是概念下的一个属性」。上一轮重设计虽然移除了左侧的
+「新建关系」入口，但本体页仍保留了与「概念」平级的顶层「关系」标签页——关系在界面上依旧是
+一等对象，与规范不符。
+
+规范依据（`../ossie/ontology/ontology.md`）：ontology 以 *concept* 为主键分层，
+「grouping each relationship under the concept that plays its first role」；
+concept 的 schema 里 `relationships` 是它的一个字段。
+
+**改动（仅前端信息架构，后端与工件模型不变）**
+
+- `frontend/src/pages/OntologyPage.tsx`
+  - 本体页标签收敛为 **概念 / 图谱 / Raw**，**移除顶层「关系」标签页与顶层「新建关系」按钮**。
+  - 概念行改为进入**概念详情弹窗**：上半部是概念定义表单，下半部是「该概念声明的关系」表格
+    （关系名 / 元数 / 其他角色 / 多重性 / verbalizes），并在此处提供 `+ 新建关系`。
+  - 关系编辑走**二级弹窗**（`Modal` 叠加），owner 预填为当前概念；换边仍按 §4.2 弹警告。
+  - 图谱中点击节点进入概念详情，点击边 / n 元 hub 直接进入对应关系编辑。
+  - 概念重命名时若已有声明关系会**弹警告**：关系标识形如 `概念.关系名`，重命名不会自动迁移
+    （自动级联迁移列入待办，见 milestones）。
+- 概念表格新增「关系」计数列，直观体现「关系是概念的属性」。
+
+**验证**：`npm run build` 通过；后端未改动。
+
+**已知待办**：概念重命名的关系级联迁移；表格排序/分页。
+
+## 2026-09-23 — 前端整体重设计 + 平台能力（租户 / 数据源 / 设置）
+
+反馈「整个页面不太合适，需要按商用软件标准重设计」。本轮做布局与信息架构的整体调整，
+并把平台级对象补齐（租户、数据源、设置），因此超出 roadmap 原 P2 的分批范围——
+**这是一次结构性的 UI/平台重构，属于对 roadmap 分期的主动调整**。
+
+**后端**
+
+- `db.rs`：新增 `tenants` / `data_sources` / `settings` 表；`repos` 增加 `tenant_id`，
+  唯一约束改为 `(tenant_id, name)`；新增容忍型 `ALTER TABLE` 迁移与默认租户播种。
+  新增表的数值列用 `BIGINT`（避免 PG `INT4` 与 `i64` 解码不兼容）。
+- 新增 `src/platform.rs`：租户 CRUD、PostgreSQL 数据源 CRUD + 连接测试、按租户的设置读写。
+  数据源连接串由坐标拼装，**永不进入 OSSIE 文档**（design-ouline §2.6）。
+- `src/vcs.rs`：`create_repo_scoped` / `list_repos_scoped`（仓库按租户隔离，同名互不冲突）。
+- `src/api.rs`：新增 `/api/tenants`、`/api/data-sources`（含 `/test`）、`/api/settings`；
+  `POST /api/repos` 接受 `tenantId`；新增 `POST /api/repos/{id}/semantic/deploy-to-source`
+  （按数据源部署，连接信息不经过请求体）。
+- **修复**：`CreateRepoReq` / `ResetReq` / `DeployReq` / `DeployToSourceReq` 缺少
+  `#[serde(rename_all = "camelCase")]`，导致前端发送的 `tenantId`/`commitId`/`connectionUrl`
+  被静默忽略（仓库创建会落到 default 租户、重置与部署接口不可用）。
+- 数据源响应**脱敏**：不再回显 `password`。
+
+**前端（整体重设计）**
+
+- 布局改为「左侧按大功能分组的导航 + 顶部工作区工具条 + 右侧功能页」：
+  工作区（项目概览）· 建模（本体 / 语义模型 / 版本控制）· 平台（数据源 / 设置）。
+- 样式整体改为**浅色/白色主题**（设计令牌、卡片、表格、表单、弹窗、徽章统一重写）。
+- **表格优先**：
+  - 本体页：概念表（类型 / 继承 / identify_by / 关系数）、关系表（声明概念 / 元数 / 角色 /
+    多重性 / verbalizes），另有「图谱」（规范渲染画布）与「Raw」（OSSIE YAML）两个视图。
+  - 语义模型页：数据集 / 关系 / 度量三张表，另有「DDL / 部署」与「Raw」。
+  - 数据源页：PostgreSQL 连接表（测试连接 / 编辑 / 删除）。
+  - 版本控制页：分支表、历史表、提交与合并卡片、导入导出。
+- 新建/编辑统一走**弹窗**（`Modal` 支持宽版），表单复用既有 `forms.tsx` 并新增「取消」动作。
+- 新增组件：`components/ui.tsx`（PageHeader / Tabs / DataTable / StatCard）、
+  `components/OntologyGraph.tsx`（从 `OntologyTab` 抽出的规范画布）。
+- 页面重写为 `pages/Studio.tsx`（壳）、`OverviewPage`、`OntologyPage`、`SemanticPage`、
+  `DataSourcesPage`、`SettingsPage`、`VersionControlPage`；移除 `OntologyTab` /
+  `SemanticTab` / `GitTab`。
+- 设置页提供：默认提交作者、默认部署 schema、租户管理与切换、规范版本与存储信息。
+
+**验证**：`cargo test`（20 单测 + 4 集成）、`cargo check --all-targets`、`npm run build`
+全部通过；并对 `tenants` / `data-sources` / `settings` / 租户隔离 / 密码脱敏做了本地端到端冒烟。
+
+**已知取舍**：数据源仅支持 PostgreSQL（按需求）；租户隔离是应用层的 `tenant_id` 过滤，
+尚未做鉴权与行级强隔离（属 P5）；连接测试与部署需要可达的 PG 实例，本地无 PG 时只验证错误路径。
+
 ## 2026-09-21 — Ontology 导航模型对齐规范（P4 修订）
 
 反馈「ontology 建模效果不理想」。核对 `../ossie/ontology/ontology.md` 后确认：规范用

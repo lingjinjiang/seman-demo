@@ -1,13 +1,14 @@
 use crate::ddl::generate_semantic_ddl;
 use crate::export::{self, OSSIE_VERSION};
 use crate::model::*;
+use crate::platform;
 use crate::validation;
 use crate::vcs::{self, BranchFrom, ModelError};
 use axum::extract::{Path, Query, State};
 use axum::http::header;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -80,10 +81,41 @@ type ApiResult<T> = Result<T, ApiError>;
 // ---------------------------------------------------------------------------
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct CreateRepoReq {
     name: String,
     #[serde(default)]
     description: Option<String>,
+    #[serde(default)]
+    tenant_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct TenantQuery {
+    #[serde(default)]
+    tenant: Option<String>,
+}
+
+impl TenantQuery {
+    fn resolve(&self) -> String {
+        self.tenant
+            .as_deref()
+            .filter(|t| !t.trim().is_empty())
+            .unwrap_or(crate::platform::DEFAULT_TENANT)
+            .to_string()
+    }
+}
+
+#[derive(Deserialize)]
+struct CreateTenantReq {
+    name: String,
+    #[serde(default)]
+    description: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct SettingsReq {
+    values: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Deserialize)]
@@ -109,6 +141,7 @@ struct DiffQuery {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ResetReq {
     commit_id: String,
 }
@@ -135,8 +168,17 @@ struct ImportReq {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct DeployReq {
     connection_url: String,
+    #[serde(default)]
+    schema: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DeployToSourceReq {
+    data_source_id: String,
     #[serde(default)]
     schema: Option<String>,
 }
@@ -274,6 +316,26 @@ pub fn router(pool: AnyPool) -> Router {
             "/api/repos/{repo_id}/semantic/deploy",
             post(semantic_deploy),
         )
+        .route(
+            "/api/repos/{repo_id}/semantic/deploy-to-source",
+            post(semantic_deploy_to_source),
+        )
+        // ---- platform: tenants / data sources / settings ----
+        .route("/api/tenants", get(list_tenants).post(create_tenant))
+        .route("/api/tenants/{tenant_id}", delete(delete_tenant))
+        .route(
+            "/api/data-sources",
+            get(list_data_sources).post(create_data_source),
+        )
+        .route(
+            "/api/data-sources/{data_source_id}",
+            put(update_data_source).delete(delete_data_source),
+        )
+        .route(
+            "/api/data-sources/{data_source_id}/test",
+            post(test_data_source),
+        )
+        .route("/api/settings", get(get_settings).put(put_settings))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state);
@@ -304,12 +366,119 @@ async fn create_repo(
     State(state): State<AppState>,
     Json(req): Json<CreateRepoReq>,
 ) -> ApiResult<(StatusCode, Json<RepoRow>)> {
-    let repo = vcs::create_repo(&state.pool, &req.name, req.description.as_deref()).await?;
+    let tenant = req
+        .tenant_id
+        .as_deref()
+        .filter(|t| !t.trim().is_empty())
+        .unwrap_or(platform::DEFAULT_TENANT);
+    let repo = vcs::create_repo_scoped(
+        &state.pool,
+        tenant,
+        &req.name,
+        req.description.as_deref(),
+    )
+    .await?;
     Ok((StatusCode::CREATED, Json(repo)))
 }
 
-async fn list_repos(State(state): State<AppState>) -> ApiResult<Json<Vec<RepoRow>>> {
-    Ok(Json(vcs::list_repos(&state.pool).await?))
+async fn list_repos(
+    State(state): State<AppState>,
+    Query(q): Query<TenantQuery>,
+) -> ApiResult<Json<Vec<RepoRow>>> {
+    Ok(Json(
+        vcs::list_repos_scoped(&state.pool, &q.resolve()).await?,
+    ))
+}
+
+// ---------------------------------------------------------------------------
+// Platform handlers: tenants / data sources / settings
+// ---------------------------------------------------------------------------
+
+async fn list_tenants(State(state): State<AppState>) -> ApiResult<Json<Vec<platform::TenantRow>>> {
+    Ok(Json(platform::list_tenants(&state.pool).await?))
+}
+
+async fn create_tenant(
+    State(state): State<AppState>,
+    Json(req): Json<CreateTenantReq>,
+) -> ApiResult<(StatusCode, Json<platform::TenantRow>)> {
+    let tenant =
+        platform::create_tenant(&state.pool, &req.name, req.description.as_deref()).await?;
+    Ok((StatusCode::CREATED, Json(tenant)))
+}
+
+async fn delete_tenant(
+    State(state): State<AppState>,
+    Path(tenant_id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    platform::delete_tenant(&state.pool, &tenant_id).await?;
+    Ok(Json(json!({ "deleted": true })))
+}
+
+async fn list_data_sources(
+    State(state): State<AppState>,
+    Query(q): Query<TenantQuery>,
+) -> ApiResult<Json<Vec<platform::DataSourceRow>>> {
+    Ok(Json(
+        platform::list_data_sources(&state.pool, &q.resolve()).await?,
+    ))
+}
+
+async fn create_data_source(
+    State(state): State<AppState>,
+    Query(q): Query<TenantQuery>,
+    Json(input): Json<platform::DataSourceInput>,
+) -> ApiResult<(StatusCode, Json<platform::DataSourceRow>)> {
+    let row = platform::create_data_source(&state.pool, &q.resolve(), &input).await?;
+    Ok((StatusCode::CREATED, Json(row)))
+}
+
+async fn update_data_source(
+    State(state): State<AppState>,
+    Path(data_source_id): Path<String>,
+    Json(input): Json<platform::DataSourceInput>,
+) -> ApiResult<Json<platform::DataSourceRow>> {
+    Ok(Json(
+        platform::update_data_source(&state.pool, &data_source_id, &input).await?,
+    ))
+}
+
+async fn delete_data_source(
+    State(state): State<AppState>,
+    Path(data_source_id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    platform::delete_data_source(&state.pool, &data_source_id).await?;
+    Ok(Json(json!({ "deleted": true })))
+}
+
+async fn test_data_source(
+    State(state): State<AppState>,
+    Path(data_source_id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    let row = platform::get_data_source(&state.pool, &data_source_id).await?;
+    match platform::test_connection_url(&row.connection_url()).await {
+        Ok(()) => Ok(Json(json!({ "ok": true, "message": "连接成功" }))),
+        Err(err) => Ok(Json(json!({ "ok": false, "message": err }))),
+    }
+}
+
+async fn get_settings(
+    State(state): State<AppState>,
+    Query(q): Query<TenantQuery>,
+) -> ApiResult<Json<Value>> {
+    let tenant = q.resolve();
+    let values = platform::get_settings(&state.pool, &tenant).await?;
+    Ok(Json(json!({ "tenantId": tenant, "values": values })))
+}
+
+async fn put_settings(
+    State(state): State<AppState>,
+    Query(q): Query<TenantQuery>,
+    Json(req): Json<SettingsReq>,
+) -> ApiResult<Json<Value>> {
+    let tenant = q.resolve();
+    let values = platform::put_settings(&state.pool, &tenant, &req.values).await?;
+    Ok(Json(json!({ "tenantId": tenant, "values": values })))
 }
 
 async fn get_repo(
@@ -626,22 +795,63 @@ async fn semantic_deploy(
     Path(repo_id): Path<String>,
     Json(req): Json<DeployReq>,
 ) -> ApiResult<Json<DeployView>> {
-    let snapshot = vcs::get_working_tree(&state.pool, &repo_id).await?;
+    let schema = req.schema.as_deref().unwrap_or("public").to_string();
+    let (ddl, statements) = semantic_deployment(&state.pool, &repo_id, &schema).await?;
+    let applied = apply_ddl(&req.connection_url, &ddl.statements).await?;
+    Ok(Json(DeployView {
+        applied,
+        statements,
+        sql: ddl.sql,
+    }))
+}
+
+/// Deploys the semantic layer through a registered PostgreSQL data source, so
+/// connection coordinates stay on the platform instead of the request body.
+async fn semantic_deploy_to_source(
+    State(state): State<AppState>,
+    Path(repo_id): Path<String>,
+    Json(req): Json<DeployToSourceReq>,
+) -> ApiResult<Json<DeployView>> {
+    let source = platform::get_data_source(&state.pool, &req.data_source_id).await?;
+    let schema = req
+        .schema
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or(&source.default_schema)
+        .to_string();
+    let (ddl, statements) = semantic_deployment(&state.pool, &repo_id, &schema).await?;
+    let applied = apply_ddl(&source.connection_url(), &ddl.statements).await?;
+    Ok(Json(DeployView {
+        applied,
+        statements,
+        sql: ddl.sql,
+    }))
+}
+
+async fn semantic_deployment(
+    pool: &AnyPool,
+    repo_id: &str,
+    schema: &str,
+) -> ApiResult<(crate::ddl::GeneratedDdl, usize)> {
+    let snapshot = vcs::get_working_tree(pool, repo_id).await?;
     let issues = validation::validate_snapshot(&snapshot);
     if validation::has_errors(&issues) {
         return Err(ApiError::Validation { issues });
     }
-    let ddl = generate_semantic_ddl(
-        &snapshot,
-        req.schema.as_deref().unwrap_or("public"),
-    );
+    let ddl = generate_semantic_ddl(&snapshot, schema);
+    let statements = ddl.statements.len();
+    Ok((ddl, statements))
+}
+
+async fn apply_ddl(connection_url: &str, statements: &[String]) -> ApiResult<bool> {
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(3)
-        .connect(&req.connection_url)
+        .acquire_timeout(std::time::Duration::from_secs(8))
+        .connect(connection_url)
         .await
         .map_err(|e| ApiError::Bad(format!("cannot connect to PostgreSQL: {e}")))?;
     let mut tx = pool.begin().await.map_err(|e| ApiError::Internal(e.to_string()))?;
-    for stmt in &ddl.statements {
+    for stmt in statements {
         if stmt.trim_start().starts_with("--") {
             continue;
         }
@@ -653,9 +863,6 @@ async fn semantic_deploy(
     tx.commit()
         .await
         .map_err(|e| ApiError::Internal(e.to_string()))?;
-    Ok(Json(DeployView {
-        applied: true,
-        statements: ddl.statements.len(),
-        sql: ddl.sql,
-    }))
+    pool.close().await;
+    Ok(true)
 }

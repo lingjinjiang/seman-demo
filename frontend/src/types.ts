@@ -1,10 +1,54 @@
 export interface Repo {
   id: string;
+  tenantId: string;
   name: string;
   description?: string | null;
   headBranchId?: string | null;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface Tenant {
+  id: string;
+  name: string;
+  description?: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface DataSource {
+  id: string;
+  tenantId: string;
+  name: string;
+  kind: string;
+  host: string;
+  port: number;
+  database: string;
+  username: string;
+  password?: string | null;
+  sslmode: string;
+  defaultSchema: string;
+  description?: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface DataSourceInput {
+  name: string;
+  kind: string;
+  host: string;
+  port: number;
+  database: string;
+  username: string;
+  password?: string;
+  sslmode: string;
+  defaultSchema: string;
+  description?: string;
+}
+
+export interface SettingsView {
+  tenantId: string;
+  values: Record<string, string>;
 }
 
 export interface Branch {

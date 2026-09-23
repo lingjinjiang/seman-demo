@@ -51,17 +51,30 @@ python ../ossie/validation/validate.py <file> --schema ../ossie/ontology/ontolog
 src/            Rust 后端（lib name = ossie_studio）
   model.rs        工件常量 + 持久化行 + Snapshot 类型（kind:key -> artifact）
   validation.rs   引用完整性 / 枚举 / 继承链 / identify_by 校验
+  ontology.rs     关系语义引擎（arity、multiplicity 适用性、降格条件、归一化提示）
+  platform.rs     平台对象：租户 / PostgreSQL 数据源 / 按租户设置
   vcs.rs          分支、提交、diff、reset、三路 merge
   ddl.rs          纯函数生成 PostgreSQL DDL（datatype -> PG 类型映射）
   export.rs       OSSIE YAML/JSON 双向（OSSIE_VERSION 常量在此）
   api.rs          axum REST 路由（全量 CRUD + 错误类型 ApiError）
   db.rs           连接与 schema 初始化（sqlx Any）
   main.rs         启动入口（DATABASE_URL / PORT 环境变量）
-frontend/src/   React 前端（pages: Studio/GitTab/OntologyTab/SemanticTab, components/forms.tsx）
+frontend/src/
+  App.tsx         挂载壳（渲染 Studio）
+  pages/          Studio（壳：侧边导航 + 顶栏 + 路由）
+                  OverviewPage / OntologyPage / SemanticPage /
+                  DataSourcesPage / SettingsPage / VersionControlPage
+  components/     forms.tsx（表单）、ui.tsx（PageHeader/Tabs/DataTable）、
+                  Modal.tsx、OntologyGraph.tsx（规范画布）
+  styles.css      浅色主题设计系统（设计令牌 + 布局 + 组件样式）
 tests/          integration.rs，内存 SQLite 全链路
 examples/       sample_model.yaml（导入导出样例）
 docs/design/    设计大纲与 roadmap
+docs/dev-plan/  开发计划跟踪（milestones.md 状态表 + changelog.md 变更记录）
 ```
+
+前端信息架构：左侧按大功能分组的导航（工作区 / 建模 / 平台），右侧为具体功能页；
+内容管理以**表格优先**，本体与语义模型另提供图谱与 Raw 预览。
 
 ## 5. 常用命令
 
@@ -100,6 +113,8 @@ ontology -(OntologyMap/mapping, 单向)-> dataset/field
 - **校验三层**：层1 结构校验（离线永远跑）；层2 存在性校验（register 触发）；层3 执行校验（deploy/EXPLAIN 硬门禁）。
 - **dataset 状态机**：📝未绑定 → 🔗已关联 → ✅已验证 → 🚀已部署。
 - **一份文档 = 一个语义模型**，无跨模型引用（spec.md）。
+- **关系不是与概念平级的一等对象**：按 ontology 规范，关系归属于「第一角色」所在的概念
+  （artifact key 形如 `Concept.relationship`，UI 中只能在概念详情内创建/编辑，不做顶层关系入口）。
 - **不做全量 catalog 导入**：语义模型是精选视图（curated view），导入永远是多选式。
 - **导出物永远可被官方 `validate.py` 零修改通过**；私有语义只进 `custom_extensions`。
 - **反模式（明确不做）**：重型语义层引擎（Cube/MetricFlow）；`gravitino://` 坐标进 `source`。

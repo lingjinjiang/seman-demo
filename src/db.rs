@@ -5,13 +5,23 @@ use sqlx::AnyPool;
 /// Schema uses only types understood by both SQLite and PostgreSQL
 /// (TEXT / INTEGER / BOOLEAN), so a single DDL works on either backend.
 const SCHEMA_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS tenants (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL UNIQUE,
+    description TEXT,
+    created_at  BIGINT NOT NULL,
+    updated_at  BIGINT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS repos (
     id             TEXT PRIMARY KEY,
-    name           TEXT NOT NULL UNIQUE,
+    tenant_id      TEXT NOT NULL DEFAULT 'default',
+    name           TEXT NOT NULL,
     description    TEXT,
     head_branch_id TEXT,
     created_at     INTEGER NOT NULL,
-    updated_at     INTEGER NOT NULL
+    updated_at     INTEGER NOT NULL,
+    UNIQUE (tenant_id, name)
 );
 
 CREATE TABLE IF NOT EXISTS branches (
@@ -46,9 +56,44 @@ CREATE TABLE IF NOT EXISTS working_trees (
     PRIMARY KEY (repo_id, branch_id)
 );
 
+CREATE TABLE IF NOT EXISTS data_sources (
+    id             TEXT PRIMARY KEY,
+    tenant_id      TEXT NOT NULL DEFAULT 'default',
+    name           TEXT NOT NULL,
+    kind           TEXT NOT NULL DEFAULT 'postgres',
+    host           TEXT NOT NULL,
+    port           BIGINT NOT NULL DEFAULT 5432,
+    database       TEXT NOT NULL,
+    username       TEXT NOT NULL,
+    password       TEXT,
+    sslmode        TEXT NOT NULL DEFAULT 'prefer',
+    default_schema TEXT NOT NULL DEFAULT 'public',
+    description    TEXT,
+    created_at     BIGINT NOT NULL,
+    updated_at     BIGINT NOT NULL,
+    UNIQUE (tenant_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+    tenant_id  TEXT NOT NULL,
+    key        TEXT NOT NULL,
+    value      TEXT,
+    updated_at BIGINT NOT NULL,
+    PRIMARY KEY (tenant_id, key)
+);
+
 CREATE INDEX IF NOT EXISTS idx_commits_repo ON commits (repo_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_branches_repo ON branches (repo_id);
+CREATE INDEX IF NOT EXISTS idx_repos_tenant ON repos (tenant_id);
+CREATE INDEX IF NOT EXISTS idx_data_sources_tenant ON data_sources (tenant_id);
 "#;
+
+/// Columns added after the initial release. `ALTER TABLE ... ADD COLUMN` has no
+/// `IF NOT EXISTS` on every backend, so failures are tolerated (they mean the
+/// column already exists).
+const MIGRATIONS: [&str; 1] = [
+    "ALTER TABLE repos ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'",
+];
 
 pub async fn connect(url: &str) -> Result<AnyPool> {
     sqlx::any::install_default_drivers();
@@ -96,7 +141,38 @@ pub async fn init_schema(pool: &AnyPool) -> Result<()> {
         }
         sqlx::query(stmt).execute(pool).await?;
     }
+    for stmt in MIGRATIONS {
+        // Tolerated failure: the column already exists on an up-to-date schema.
+        if let Err(err) = sqlx::query(stmt).execute(pool).await {
+            tracing::debug!("migration skipped ({err}): {stmt}");
+        }
+    }
+    ensure_default_tenant(pool).await?;
     Ok(())
+}
+
+/// The default tenant keeps single-tenant deployments working unchanged.
+async fn ensure_default_tenant(pool: &AnyPool) -> Result<()> {
+    let now = chrono::Utc::now().timestamp_millis();
+    // `INSERT ... WHERE NOT EXISTS` keeps this idempotent on both backends.
+    sqlx::query(
+        "INSERT INTO tenants (id, name, description, created_at, updated_at)
+         SELECT ?, ?, ?, ?, ?
+         WHERE NOT EXISTS (SELECT 1 FROM tenants WHERE id = ?)",
+    )
+    .bind(platform_default_tenant())
+    .bind("Default")
+    .bind("默认租户（单租户部署使用）")
+    .bind(now)
+    .bind(now)
+    .bind(platform_default_tenant())
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+fn platform_default_tenant() -> &'static str {
+    crate::platform::DEFAULT_TENANT
 }
 
 pub fn backend_name(url: &str) -> &'static str {

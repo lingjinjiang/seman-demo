@@ -31,8 +31,9 @@
 
 ## P2 数据源控制 + Gravitino
 
+- [x] **数据源注册（PostgreSQL）**：坐标 + 默认 schema + 连接测试 + 密码脱敏，按租户隔离 —— `src/platform.rs`、`pages/DataSourcesPage.tsx`
+- [x] **按数据源部署语义层**：`POST /api/repos/{id}/semantic/deploy-to-source`，连接信息不经过请求体
 - [ ] 环境一等公民 + 绑定表 + 环境克隆
-- [ ] 数据源注册（含默认 metalake）
 - [ ] custom_extensions 下沉 catalog 坐标（vendor_name: GRAVITINO）
 - [ ] dataset 状态机（📝 → 🔗 → ✅ → 🚀）
 - [ ] 导出包三层（model / bindings / data-plan / acceptance）
@@ -60,6 +61,18 @@
 
 ## P5 治理与生态
 
+- [~] **租户隔离**：`tenant_id` 应用层过滤 + 租户管理 UI（`/api/tenants`）；尚未做鉴权/RBAC，非行级强隔离
 - [ ] 用户 / RBAC / 多租户（OIDC）
 - [ ] metrics 开放 API
 - [ ] 条件项：OWL/LinkML 导入（视客户信号）
+
+## 前端信息架构（2026-09-23 重设计）
+
+- [x] 左侧按大功能分组导航（工作区 / 建模 / 平台）+ 顶部工作区工具条
+- [x] 浅色（白色）主题设计系统
+- [x] 表格优先的内容管理（本体 / 语义模型 / 数据源 / 版本控制）+ 图谱与 Raw 预览
+- [x] 新建与编辑统一走弹窗
+- [x] 本体页：关系下沉到概念之下（概念详情内管理「该概念声明的关系」），取消顶层关系入口
+- [ ] 概念重命名时级联迁移其关系的 artifact key（`Concept.relationship`）
+- [ ] 表格排序 / 分页 / 列筛选（数据量大时再补）
+- [ ] 深色主题切换

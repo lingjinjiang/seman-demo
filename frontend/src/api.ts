@@ -3,11 +3,15 @@ import type {
   Branch,
   Change,
   Commit,
+  DataSource,
+  DataSourceInput,
   DeployView,
   DiffView,
   Issue,
   MergeOutcome,
   Repo,
+  SettingsView,
+  Tenant,
   WorkingView,
 } from "./types";
 
@@ -43,15 +47,68 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  listRepos: () => request<Repo[]>("/api/repos"),
-  createRepo: (name: string, description?: string) =>
+  health: () =>
+    request<{ status: string; spec: string; storage: string }>("/api/health"),
+
+  listRepos: (tenant: string) =>
+    request<Repo[]>(`/api/repos?tenant=${encodeURIComponent(tenant)}`),
+  createRepo: (name: string, description: string | undefined, tenant: string) =>
     request<Repo>("/api/repos", {
       method: "POST",
-      body: JSON.stringify({ name, description })
+      body: JSON.stringify({ name, description, tenantId: tenant })
     }),
   getRepo: (repoId: string) => request<Repo>(`/api/repos/${repoId}`),
   deleteRepo: (repoId: string) =>
     request<{ deleted: boolean }>(`/api/repos/${repoId}`, { method: "DELETE" }),
+
+  // ---- platform: tenants / data sources / settings ----
+  listTenants: () => request<Tenant[]>("/api/tenants"),
+  createTenant: (name: string, description?: string) =>
+    request<Tenant>("/api/tenants", {
+      method: "POST",
+      body: JSON.stringify({ name, description })
+    }),
+  deleteTenant: (tenantId: string) =>
+    request<{ deleted: boolean }>(`/api/tenants/${tenantId}`, {
+      method: "DELETE"
+    }),
+
+  listDataSources: (tenant: string) =>
+    request<DataSource[]>(
+      `/api/data-sources?tenant=${encodeURIComponent(tenant)}`
+    ),
+  createDataSource: (tenant: string, input: DataSourceInput) =>
+    request<DataSource>(
+      `/api/data-sources?tenant=${encodeURIComponent(tenant)}`,
+      { method: "POST", body: JSON.stringify(input) }
+    ),
+  updateDataSource: (id: string, input: DataSourceInput) =>
+    request<DataSource>(`/api/data-sources/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(input)
+    }),
+  deleteDataSource: (id: string) =>
+    request<{ deleted: boolean }>(`/api/data-sources/${id}`, {
+      method: "DELETE"
+    }),
+  testDataSource: (id: string) =>
+    request<{ ok: boolean; message: string }>(
+      `/api/data-sources/${id}/test`,
+      { method: "POST", body: "{}" }
+    ),
+
+  getSettings: (tenant: string) =>
+    request<SettingsView>(
+      `/api/settings?tenant=${encodeURIComponent(tenant)}`
+    ),
+  putSettings: (
+    tenant: string,
+    values: Record<string, string>
+  ) =>
+    request<SettingsView>(
+      `/api/settings?tenant=${encodeURIComponent(tenant)}`,
+      { method: "PUT", body: JSON.stringify({ values }) }
+    ),
 
   getWorking: (repoId: string) =>
     request<WorkingView>(`/api/repos/${repoId}/working`),
@@ -141,5 +198,14 @@ export const api = {
     request<DeployView>(`/api/repos/${repoId}/semantic/deploy`, {
       method: "POST",
       body: JSON.stringify({ connectionUrl, schema })
+    }),
+  semanticDeployToSource: (
+    repoId: string,
+    dataSourceId: string,
+    schema: string
+  ) =>
+    request<DeployView>(`/api/repos/${repoId}/semantic/deploy-to-source`, {
+      method: "POST",
+      body: JSON.stringify({ dataSourceId, schema })
     })
 };

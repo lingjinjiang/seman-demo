@@ -76,6 +76,7 @@ pub fn empty_snapshot() -> Snapshot {
 #[serde(rename_all = "camelCase")]
 pub struct RepoRow {
     pub id: String,
+    pub tenant_id: String,
     pub name: String,
     pub description: Option<String>,
     pub head_branch_id: Option<String>,

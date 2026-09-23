@@ -55,9 +55,11 @@ cargo test   # 全部跑在内存 SQLite 上，无需外部数据库
 
 ## 功能
 
-### Ontology 建模（ER 画布）
+### Ontology 建模
 
-左侧列表 + 中央 React Flow 画布 + 右侧编辑器：
+本体页**以概念表为主**，新建与编辑走弹窗；**关系归属于声明它的概念**（进入概念详情查看与编辑），
+另提供图谱与 Raw 视图。图谱按 ontology 规范渲染（二元有向边、箭头端 multiplicity、一元徽章、
+n 元虚拟实体 hub）：
 
 - **实体/值类型**：`type`、`extends`（值类型必须传递地继承内置值类型）、`identify_by`、`requires`、`derived_by`、`description`。
 - **关系**：key 形如 `Person.earns`（owner 即第一角色），支持一元/二元/多元、`roles`（同概念多角色必须用 `name` 区分）、`multiplicity`（`ManyToOne`/`OneToOne`）、`verbalizes`。
@@ -106,8 +108,34 @@ cargo test   # 全部跑在内存 SQLite 上，无需外部数据库
 | POST | `/api/repos/{id}/import` | 导入 Ossie YAML/JSON |
 | GET | `/api/repos/{id}/semantic/preview?schema=` | 生成语义层 DDL |
 | POST | `/api/repos/{id}/semantic/deploy` | 部署语义层到 PostgreSQL |
+| POST | `/api/repos/{id}/semantic/deploy-to-source` | 通过已注册数据源部署语义层 |
+| GET/POST | `/api/tenants` | 租户列表 / 创建 |
+| DELETE | `/api/tenants/{id}` | 删除租户（需先清空其模型仓库） |
+| GET/POST | `/api/data-sources?tenant=` | PostgreSQL 数据源列表 / 创建 |
+| PUT/DELETE | `/api/data-sources/{id}` | 更新 / 删除数据源 |
+| POST | `/api/data-sources/{id}/test` | 测试连接 |
+| GET/PUT | `/api/settings?tenant=` | 按租户读取 / 写入设置 |
 
 工件 kind：`concept`、`ontology_relationship`、`dataset`、`semantic_relationship`、`metric`。
+
+## 界面与平台能力
+
+前端按商用建模工具的形态组织：**左侧按大功能分组的导航**，右侧为具体功能页，整体采用浅色主题。
+
+- **项目概览**：租户下的模型仓库列表（一份文档 = 一个语义模型），新建/打开/删除。
+- **本体**：概念表（EntityType / ValueType、extends、identify_by、关系数）。**关系不与概念平级**——
+  按 ontology 规范它归属于「第一角色」所在的概念，因此点开概念详情即可查看 / 编辑「该概念声明的
+  关系」（关系名、元数、角色、多重性、verbalizes）。另提供**图谱**（二元有向边 + 箭头端
+  multiplicity、一元节点徽章、n 元虚线 hub、identify_by 🔑）与 **Raw**（OSSIE YAML）视图。
+- **语义模型**：数据集 / 关系 / 度量三张表，另有 **DDL / 部署**（可部署到已注册数据源）与 **Raw**。
+- **版本控制**：分支表、历史表（点开看 diff）、提交与合并、导入导出。
+- **数据源**：PostgreSQL 连接管理（坐标、默认 schema、连接测试）；**仅支持 PostgreSQL**。
+- **设置**：默认提交作者、默认部署 schema、租户管理与切换、规范版本与存储信息。
+
+**租户隔离**：模型仓库、数据源、设置均按 `tenant_id` 隔离，同名仓库可在不同租户下共存。
+当前为应用层过滤，尚未接入鉴权/RBAC（见 roadmap P5）。
+
+> 设计约束：环境令牌（host / 连接串 / metalake）只存在于数据源与设置中，**永不写入 OSSIE 文档**。
 
 ## 与 Apache Ossie 规范的对齐
 

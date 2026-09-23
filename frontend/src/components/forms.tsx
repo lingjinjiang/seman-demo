@@ -105,11 +105,13 @@ export function SelectRow({
 function SaveBar({
   onSave,
   onDelete,
+  onCancel,
   busy,
   canSave = true
 }: {
   onSave: () => void;
   onDelete?: () => void;
+  onCancel?: () => void;
   busy?: boolean;
   canSave?: boolean;
 }) {
@@ -118,6 +120,11 @@ function SaveBar({
       <button className="primary" onClick={onSave} disabled={!canSave || busy}>
         保存
       </button>
+      {onCancel && (
+        <button onClick={onCancel} disabled={busy}>
+          取消
+        </button>
+      )}
       {onDelete && (
         <button className="danger" onClick={onDelete} disabled={busy}>
           删除
@@ -135,12 +142,14 @@ export function ConceptForm({
   body,
   onSave,
   onDelete,
-  busy
+  busy,
+  onCancel
 }: {
   body: any;
   onSave: (key: string, body: any) => void;
   onDelete?: () => void;
   busy?: boolean;
+  onCancel?: () => void;
 }) {
   const [name, setName] = useState(body.name || "");
   const [type, setType] = useState(body.type || "EntityType");
@@ -203,6 +212,7 @@ export function ConceptForm({
       <SaveBar
         onSave={save}
         onDelete={onDelete}
+        onCancel={onCancel}
         busy={busy}
         canSave={!!name.trim() && !!type}
       />
@@ -219,13 +229,15 @@ export function OntologyRelForm({
   concepts,
   onSave,
   onDelete,
-  busy
+  busy,
+  onCancel
 }: {
   body: any;
   concepts: string[];
   onSave: (key: string, body: any) => void;
   onDelete?: () => void;
   busy?: boolean;
+  onCancel?: () => void;
 }) {
   const [owner, setOwner] = useState(body._owner || concepts[0] || "");
   const [name, setName] = useState(body.name || "");
@@ -385,6 +397,7 @@ export function OntologyRelForm({
       <SaveBar
         onSave={save}
         onDelete={onDelete}
+        onCancel={onCancel}
         busy={busy}
         canSave={!!name.trim() && !!owner.trim() && !!verbalizes.trim()}
       />
@@ -400,12 +413,14 @@ export function DatasetForm({
   body,
   onSave,
   onDelete,
-  busy
+  busy,
+  onCancel
 }: {
   body: any;
   onSave: (key: string, body: any) => void;
   onDelete?: () => void;
   busy?: boolean;
+  onCancel?: () => void;
 }) {
   const [name, setName] = useState(body.name || "");
   const [source, setSource] = useState(body.source || "");
@@ -543,6 +558,7 @@ export function DatasetForm({
       <SaveBar
         onSave={save}
         onDelete={onDelete}
+        onCancel={onCancel}
         busy={busy}
         canSave={!!name.trim()}
       />
@@ -559,13 +575,15 @@ export function SemanticRelForm({
   datasets,
   onSave,
   onDelete,
-  busy
+  busy,
+  onCancel
 }: {
   body: any;
   datasets: string[];
   onSave: (key: string, body: any) => void;
   onDelete?: () => void;
   busy?: boolean;
+  onCancel?: () => void;
 }) {
   const [name, setName] = useState(body.name || "");
   const [from, setFrom] = useState(body.from || datasets[0] || "");
@@ -624,6 +642,7 @@ export function SemanticRelForm({
       <SaveBar
         onSave={save}
         onDelete={onDelete}
+        onCancel={onCancel}
         busy={busy}
         canSave={!!name.trim() && !!from && !!to && !!fromColumns.trim() && !!toColumns.trim()}
       />
@@ -639,12 +658,14 @@ export function MetricForm({
   body,
   onSave,
   onDelete,
-  busy
+  busy,
+  onCancel
 }: {
   body: any;
   onSave: (key: string, body: any) => void;
   onDelete?: () => void;
   busy?: boolean;
+  onCancel?: () => void;
 }) {
   const [name, setName] = useState(body.name || "");
   const [datatype, setDatatype] = useState(body.datatype || "");
@@ -736,6 +757,7 @@ export function MetricForm({
       <SaveBar
         onSave={save}
         onDelete={onDelete}
+        onCancel={onCancel}
         busy={busy}
         canSave={!!name.trim() && dialects.some((d) => d.expression.trim())}
       />

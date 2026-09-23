@@ -47,9 +47,32 @@ pub async fn create_repo(
     name: &str,
     description: Option<&str>,
 ) -> ModelResult<RepoRow> {
+    create_repo_scoped(pool, crate::platform::DEFAULT_TENANT, name, description).await
+}
+
+/// Creates a repository inside a tenant. Repository names are unique per
+/// tenant, so two tenants can both own a `retail` model.
+pub async fn create_repo_scoped(
+    pool: &AnyPool,
+    tenant_id: &str,
+    name: &str,
+    description: Option<&str>,
+) -> ModelResult<RepoRow> {
     let name = name.trim();
     if name.is_empty() {
         return Err(ModelError::Bad("repository name must not be empty".into()));
+    }
+    let duplicate: Option<(String,)> =
+        sqlx::query_as("SELECT id FROM repos WHERE tenant_id = ? AND name = ?")
+            .bind(tenant_id)
+            .bind(name)
+            .fetch_optional(pool)
+            .await
+            .map_err(db)?;
+    if duplicate.is_some() {
+        return Err(ModelError::Bad(format!(
+            "repository `{name}` already exists in this tenant"
+        )));
     }
     let repo_id = new_id();
     let branch_id = new_id();
@@ -59,9 +82,10 @@ pub async fn create_repo(
 
     let mut tx = pool.begin().await.map_err(db)?;
     sqlx::query(
-        "INSERT INTO repos (id, name, description, head_branch_id, created_at, updated_at) VALUES (?, ?, ?, NULL, ?, ?)",
+        "INSERT INTO repos (id, tenant_id, name, description, head_branch_id, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, ?, ?)",
     )
     .bind(&repo_id)
+    .bind(tenant_id)
     .bind(name)
     .bind(description)
     .bind(now)
@@ -137,6 +161,16 @@ pub async fn list_repos(pool: &AnyPool) -> ModelResult<Vec<RepoRow>> {
         .fetch_all(pool)
         .await
         .map_err(db)?)
+}
+
+pub async fn list_repos_scoped(pool: &AnyPool, tenant_id: &str) -> ModelResult<Vec<RepoRow>> {
+    Ok(sqlx::query_as::<_, RepoRow>(
+        "SELECT * FROM repos WHERE tenant_id = ? ORDER BY updated_at DESC",
+    )
+    .bind(tenant_id)
+    .fetch_all(pool)
+    .await
+    .map_err(db)?)
 }
 
 pub async fn delete_repo(pool: &AnyPool, repo_id: &str) -> ModelResult<()> {
