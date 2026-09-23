@@ -48,7 +48,9 @@
 
 ## P3 LLM 问数 Agent
 
+- [x] Harness 选型分析（`docs/design/agent-harness-selection.md`）
 - [ ] Python 服务（FastAPI + LiteLLM）
+- [ ] 只读已发布快照（`/released`），不读工作区
 - [ ] Grounding 检索 API（Rust 侧）
 - [ ] Agent 工具集 + 护栏（IR schema、EXPLAIN、行列硬限）
 - [ ] grounding 分层（真实/虚拟实体）

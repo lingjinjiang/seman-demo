@@ -142,9 +142,15 @@ Gravitino 与执行：
 
 ### P3 LLM 问数 Agent（3~4 周）
 
+- [ ] **Harness 选型**：见 `agent-harness-selection.md`——第一版用 Pydantic AI / OpenAI Agents SDK
+      （或自研薄循环作基线）；**DeepSeek Harness（DSH）架构契合度最高但属 developer preview，
+      作为并行评估候选**（`dsh --profile sdk` 本地进程，跑同一套工具与评测集）；DSPy 留作后续
+      准确率优化，LangGraph 等流程复杂再上
+- [ ] **`AgentRuntime` 薄接口**：隔离 harness，保证可替换（换 harness 不改业务逻辑）
 - [ ] Python 服务（FastAPI + LiteLLM），只走 REST，独立部署
 - [ ] Grounding 检索 API（Rust 侧）：synonyms/ai_context/description 全文检索（先 PG tsvector / SQLite FTS5）
 - [ ] Agent 工具集：model_search → IR 生成（JSON Schema 约束）→ compile → validate → execute（row limit）→ 解释
+- [ ] **只读已发布快照**：Agent 的检索与编译输入均取自 `/released`，不读工作区或任意分支
 - [ ] **grounding 分层**：真实实体注册为"可定位/可下钻"，虚拟实体（n 元事实）与 verbalizes 仅参与语义匹配——可下钻性的工具层保障
 - [ ] 护栏：IR schema 校验、编译诊断回灌重试（≤N）、EXPLAIN 预检、行列硬限、歧义反问不硬猜
 - [ ] 会话与提问历史；回答附"依据"（命中的 metric/relationship/ontology 事实句，可展开 SQL）

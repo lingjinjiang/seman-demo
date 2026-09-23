@@ -320,6 +320,8 @@ acceptance.yaml  验收标准（绑定覆盖率、表存在性、冒烟查询）
 - **查询编译器**：语义查询 IR（LLM 契约）→ join 路径 + fanout 隔离 → Trino SQL；LLM 永不直出 SQL；
 - **导入生态**：dbt（复用社区 ossie_dbt）、catalog 精选导入（§3.2）、OWL/Palantir/LinkML（§1.3）；
 - **问数 Agent**：grounding 分层——真实实体注册为"可定位可下钻"，虚拟实体/事实只以 verbalizes 参与匹配（可下钻性的来源）。
+- **问数 Agent 的 harness 选型**：见 `agent-harness-selection.md`。要点是 harness 只做编排
+  （工具循环 + 结构化输出 + 失败回灌 + trace），编译/校验语义一律留在 Rust，且只读已发布版本。
 
 ---
 

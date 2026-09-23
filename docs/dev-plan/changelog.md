@@ -4,6 +4,33 @@
 
 ---
 
+## 2026-09-23 — 智能问数 Agent 的 Harness 选型文档
+
+为 P3（LLM 问数）做选型分析，新增 `docs/design/agent-harness-selection.md`：
+
+- 先划定 harness 的职责边界（工具循环 + 结构化输出 + 失败回灌 + trace），并列出 6 条硬约束
+  （LLM 不直出 SQL / 编译语义留在 Rust / 只读已发布版本 / 重试有上限 / 可私有化 / 可评测）。
+- 8 个评估维度 + 9 个候选的对比表（Pydantic AI、OpenAI Agents SDK、LangGraph、LlamaIndex、
+  Haystack、DSPy、CrewAI/AutoGen、Dify 类低代码、自研薄循环）。
+- 结论：Pydantic AI 与 OpenAI Agents SDK 二选一；LangGraph 等流程变复杂再上；DSPy 是优化器
+  而非 harness，放第二阶段；多智能体与低代码平台不进核心链路；自研薄循环作为基线。
+- `roadmap.md` P3 与 `design-ouline.md` §6 增加指向该文档的条目，并补「只读已发布快照」任务。
+
+**补充（同日）**：确认「dsh」= **DeepSeek Harness**。已联网核实其仓库与架构文档，在文档中新增
+**§4.9 DSH 专项评估**与 **§5.1 双轨验证**：
+
+- DSH 是 DeepSeek 官方的开源 agent harness（MIT、TypeScript、2026-08-13 创建、developer preview），
+  基于 Cordis 的「everything is a plugin」架构，**模型适配器 / 工具注册表 / 会话日志 / agent loop
+  本身都是插件**；按 profile 组合运行（`web` / `headless` / **`sdk`** / `sdk-minimal` / `acp`），
+  并提供 **Python SDK**（wheel 打包 dsh CLI，默认起 `dsh --profile sdk`）。
+- 逐条对照我们的 6 条硬约束：C2/C4/C5/C6 明确契合（工具即插件、受守卫的执行管线、
+  MIT + 本地进程、append-only SessionEvent 日志天然可重放）；**C1（强制 JSON Schema 产出 IR）
+  未验证，列为准入必测项**。
+- 风险：成熟度（pre-1.0、明示破坏性变更）、Node 运行时栈变厚（影响 on-prem 交付）、
+  Cordis 学习曲线、自带 UI 与我们的 UI 重叠（只走 headless/sdk）。
+- 结论：**不作为 P3 第一版默认依赖，列为并行评估头号候选**；用 `AgentRuntime` 薄接口隔离，
+  两条链路跑同一套工具 + 同一套 20 题评测集，以一次通过率 / 可追溯性 / 成本决定是否切换。
+
 ## 2026-09-23 — 版本内嵌 + 发布边界（开发态 / 应用态分离）
 
 反馈三个问题：①版本不该是独立功能，应内嵌在本体/语义模型里，或以仓库为粒度；
