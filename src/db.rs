@@ -82,10 +82,22 @@ CREATE TABLE IF NOT EXISTS settings (
     PRIMARY KEY (tenant_id, key)
 );
 
+CREATE TABLE IF NOT EXISTS releases (
+    id          TEXT PRIMARY KEY,
+    repo_id     TEXT NOT NULL,
+    environment TEXT NOT NULL,
+    commit_id   TEXT NOT NULL,
+    message     TEXT,
+    author      TEXT NOT NULL,
+    seq         BIGINT NOT NULL DEFAULT 0,
+    created_at  BIGINT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_commits_repo ON commits (repo_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_branches_repo ON branches (repo_id);
 CREATE INDEX IF NOT EXISTS idx_repos_tenant ON repos (tenant_id);
 CREATE INDEX IF NOT EXISTS idx_data_sources_tenant ON data_sources (tenant_id);
+CREATE INDEX IF NOT EXISTS idx_releases_repo ON releases (repo_id, environment, seq);
 "#;
 
 /// Columns added after the initial release. `ALTER TABLE ... ADD COLUMN` has no

@@ -9,6 +9,7 @@ import type {
   DiffView,
   Issue,
   MergeOutcome,
+  Release,
   Repo,
   SettingsView,
   Tenant,
@@ -207,5 +208,31 @@ export const api = {
     request<DeployView>(`/api/repos/${repoId}/semantic/deploy-to-source`, {
       method: "POST",
       body: JSON.stringify({ dataSourceId, schema })
-    })
+    }),
+
+  // ---- releases: the published, consumer-facing view of a model ----
+  // Consumers read `/released`; the working tree and branches stay private to
+  // the modeling surface (design-ouline §1.5).
+  listReleases: (repoId: string) =>
+    request<Release[]>(`/api/repos/${repoId}/releases`),
+  createRelease: (
+    repoId: string,
+    environment: string,
+    message: string,
+    author: string,
+    commitId?: string
+  ) =>
+    request<Release>(`/api/repos/${repoId}/releases`, {
+      method: "POST",
+      body: JSON.stringify({ environment, message, author, commitId })
+    }),
+  deleteRelease: (repoId: string, releaseId: string) =>
+    request<{ deleted: boolean }>(
+      `/api/repos/${repoId}/releases/${releaseId}`,
+      { method: "DELETE" }
+    ),
+  releasedUrl: (repoId: string, environment: string, format = "yaml") =>
+    `/api/repos/${repoId}/released?environment=${encodeURIComponent(
+      environment
+    )}&format=${format}`
 };

@@ -51,6 +51,27 @@ export interface SettingsView {
   values: Record<string, string>;
 }
 
+/** A commit published to an environment — the only thing consumers read. */
+export interface Release {
+  id: string;
+  repoId: string;
+  environment: string;
+  commitId: string;
+  message?: string | null;
+  author: string;
+  seq: number;
+  createdAt: number;
+}
+
+/** Everything the version bar and history need for one repository. */
+export interface RepoVersion {
+  repoId: string;
+  working: WorkingView;
+  branches: Branch[];
+  commits: Commit[];
+  releases: Release[];
+}
+
 export interface Branch {
   id: string;
   repoId: string;

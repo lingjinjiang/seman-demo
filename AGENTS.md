@@ -53,6 +53,7 @@ src/            Rust 后端（lib name = ossie_studio）
   validation.rs   引用完整性 / 枚举 / 继承链 / identify_by 校验
   ontology.rs     关系语义引擎（arity、multiplicity 适用性、降格条件、归一化提示）
   platform.rs     平台对象：租户 / PostgreSQL 数据源 / 按租户设置
+  release.rs      版本发布（commit × 环境 的不可变指针）+ 发布台账
   vcs.rs          分支、提交、diff、reset、三路 merge
   ddl.rs          纯函数生成 PostgreSQL DDL（datatype -> PG 类型映射）
   export.rs       OSSIE YAML/JSON 双向（OSSIE_VERSION 常量在此）
@@ -63,9 +64,10 @@ frontend/src/
   App.tsx         挂载壳（渲染 Studio）
   pages/          Studio（壳：侧边导航 + 顶栏 + 路由）
                   OverviewPage / OntologyPage / SemanticPage /
-                  DataSourcesPage / SettingsPage / VersionControlPage
+                  DataSourcesPage / SettingsPage
   components/     forms.tsx（表单）、ui.tsx（PageHeader/Tabs/DataTable）、
-                  Modal.tsx、OntologyGraph.tsx（规范画布）
+                  Modal.tsx、OntologyGraph.tsx（规范画布）、
+                  VersionBar.tsx（版本条：提交/历史/分支/发布，内嵌建模页）
   styles.css      浅色主题设计系统（设计令牌 + 布局 + 组件样式）
 tests/          integration.rs，内存 SQLite 全链路
 examples/       sample_model.yaml（导入导出样例）
@@ -115,6 +117,12 @@ ontology -(OntologyMap/mapping, 单向)-> dataset/field
 - **一份文档 = 一个语义模型**，无跨模型引用（spec.md）。
 - **关系不是与概念平级的一等对象**：按 ontology 规范，关系归属于「第一角色」所在的概念
   （artifact key 形如 `Concept.relationship`，UI 中只能在概念详情内创建/编辑，不做顶层关系入口）。
+- **版本以仓库为粒度，且是能力不是独立功能**：本体与语义模型同属一份 OSSIE 文档、存在单向依赖，
+  因此同版本演进（不做按 section 的独立版本）；提交/历史/分支/发布内嵌在本体与语义模型页共用，
+  不占顶层导航（design-ouline §1.5）。
+- **开发态与应用态分离**：工作区 draft → commit → **release（commit × 环境）**；
+  消费方（问数 / Agent / BI / 开放 API）**只读已发布快照**，永不读 working tree 或任意分支。
+  发布是追加式不可变记录，回滚 = 重新发布历史 commit（不重写历史）。
 - **不做全量 catalog 导入**：语义模型是精选视图（curated view），导入永远是多选式。
 - **导出物永远可被官方 `validate.py` 零修改通过**；私有语义只进 `custom_extensions`。
 - **反模式（明确不做）**：重型语义层引擎（Cube/MetricFlow）；`gravitino://` 坐标进 `source`。

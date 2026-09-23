@@ -7,7 +7,8 @@ import {
 } from "../components/forms";
 import { Modal } from "../components/Modal";
 import { DataTable, PageHeader, Tabs, type Column } from "../components/ui";
-import type { Artifact, DataSource, Issue, WorkingView } from "../types";
+import { VersionBar } from "../components/VersionBar";
+import type { Artifact, DataSource, Issue, RepoVersion } from "../types";
 
 type TabKey = "datasets" | "relationships" | "metrics" | "ddl" | "raw";
 
@@ -18,16 +19,15 @@ const KINDS: Record<string, string> = {
 };
 
 export function SemanticPage({
-  repoId,
+  version,
   tenant,
-  working,
   refresh
 }: {
-  repoId: string;
+  version: RepoVersion;
   tenant: string;
-  working: WorkingView;
   refresh: () => Promise<void>;
 }) {
+  const { repoId, working } = version;
   const [tab, setTab] = useState<TabKey>("datasets");
   const [editing, setEditing] = useState<{ kind: string; key: string } | null>(
     null
@@ -363,6 +363,17 @@ export function SemanticPage({
           </>
         }
         actions={addButton()}
+      />
+
+      {/* Same repository history as the Ontology page — version spans both
+          sections of the document (design-ouline §1.5 规则 1). */}
+      <VersionBar
+        repoId={repoId}
+        working={working}
+        branches={version.branches}
+        commits={version.commits}
+        releases={version.releases}
+        refresh={refresh}
       />
 
       <Tabs

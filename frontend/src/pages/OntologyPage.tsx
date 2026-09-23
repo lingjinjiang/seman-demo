@@ -4,7 +4,8 @@ import { ConceptForm, OntologyRelForm } from "../components/forms";
 import { Modal } from "../components/Modal";
 import { OntologyGraph } from "../components/OntologyGraph";
 import { DataTable, PageHeader, Tabs, type Column } from "../components/ui";
-import type { Artifact, Issue, WorkingView } from "../types";
+import { VersionBar } from "../components/VersionBar";
+import type { Artifact, Issue, RepoVersion } from "../types";
 
 // Information architecture follows the ontology spec
 // (../ossie/ontology/ontology.md): an ontology groups *each relationship under
@@ -24,14 +25,13 @@ function arityLabel(body: any): string {
 }
 
 export function OntologyPage({
-  repoId,
-  working,
+  version,
   refresh
 }: {
-  repoId: string;
-  working: WorkingView;
+  version: RepoVersion;
   refresh: () => Promise<void>;
 }) {
+  const { repoId, working } = version;
   const [tab, setTab] = useState<TabKey>("concepts");
   // The concept whose detail (definition + its relationships) is open.
   const [conceptKey, setConceptKey] = useState<string | null>(null);
@@ -326,6 +326,16 @@ export function OntologyPage({
             + 新建概念
           </button>
         }
+      />
+
+      {/* Version is a capability of the model, not a separate destination. */}
+      <VersionBar
+        repoId={repoId}
+        working={working}
+        branches={version.branches}
+        commits={version.commits}
+        releases={version.releases}
+        refresh={refresh}
       />
 
       <Tabs

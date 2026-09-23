@@ -31,6 +31,8 @@
 | 数据源控制缺位：source 无逻辑名约束、无环境概念、无绑定表、无分级健康诊断 | 🟠 | P2 |
 | 无 ontology mappings / OntologyMap 导出 | 🟠 | P4 |
 | 无 LLM 问数层 | 🔴 | P3 |
+| **无开发态/应用态分离**：只有分支与提交，没有"发布"这道边界，消费方若直接读工作区就会被在改的模型影响 | 🔴 | P2 |
+| 版本被做成独立的顶层功能页，与"用户正在改本体/语义模型"的心智脱节（应内嵌为能力） | 🟡 | P2 |
 | `model.rs` DIALECTS 只有 7 个，落后于 spec（已列 P0） | 🟡 | P0 |
 | 无骨架 metric / 总线矩阵入口（metric 驱动工作流缺起点） | 🟡 | P1 |
 | 无存在性校验（表达式列引用 × 物理表结构比对） | 🟡 | P1 |
@@ -53,6 +55,7 @@
 │  + binding.rs    环境/绑定表/健康诊断              【P2】    │
 │  + gravitino.rs  Gravitino exporter(DeployTarget)【P2】    │
 │  + trino.rs      Trino 查询执行代理                【P2】    │
+│  + release.rs    版本发布（commit × 环境指针）      【P2】    │
 │  + ontology 规则引擎(关系语义/等价重构检查)        【P4】    │
 ├────────────────────────────────────────────────────────────┤
 │ LLM Agent 服务（Python，独立部署）                 【P3】    │
@@ -60,6 +63,7 @@
 │ 执行与元数据面                                               │
 │  Trino ──(gravitino-connector)──▶ Apache Gravitino         │
 │     解析链：dataset.source(逻辑名) → 环境绑定表 → 坐标       │
+│  消费链：问数/Agent/BI ──只读──▶ 已发布版本(prod)            │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -69,6 +73,8 @@
 2. **方言后端 trait**：Trino 首选，PG（已有 deploy 体系）次之，ANSI 保底；
 3. **source 只写逻辑名，环境令牌一律进绑定表**（`(env, 逻辑名) → 坐标/连接`，平台资产，不进导出物）；⚠️ 取代 v1 中"gravitino:// 坐标进 source"的设想——那是反模式；
 4. **编译器为纯函数**：`(Snapshot, IR, dialect) -> SQL + 诊断`，仿 `ddl.rs`。
+5. **发布是消费侧的唯一边界**：工作区 draft → 提交 commit → 发布 release(commit × 环境)；
+   消费方只读已发布快照，永不读 working tree 或任意分支（design-outline §1.5）。
 
 ---
 
@@ -103,6 +109,16 @@
 **验收**：10 题编译基准（单源/双源 join/复合指标/时间过滤）sqlparser + Trino EXPLAIN 全过；骨架 metric 全生命周期（骨架→绑定 dataset→补表达式→点亮）可演示。
 
 ### P2 数据源控制 + Gravitino（3~4 周）
+
+版本与发布（design-outline §1.5 / §1.6）：
+- [ ] **版本能力内嵌**：把提交 / 历史 / 分支从独立页面改为「本体」「语义模型」页共用的版本条
+      （同一份仓库历史），移除顶层「版本控制」导航项
+- [ ] `src/release.rs`：`releases` 表（repo × environment × commit，追加式不可变记录）+ 发布/回滚 API
+- [ ] **发布门禁**：发布前要求该 commit 快照层1 校验无 error；层2 告警仅提示
+- [ ] **消费只读接口**：`GET /api/repos/{id}/releases/latest?environment=` 返回该环境当前发布的
+      OSSIE 文档（供问数 / Agent / BI 消费），与工作区完全隔离
+- [ ] 回滚 = 重新发布历史 commit（不重写历史）；发布台账（谁、何时、把哪个版本推上哪个环境）
+- [ ] **初始状态交互**：自动选中最近仓库；租户切换移入侧栏底部；无仓库时点「本体」直接进入创建流程
 
 数据源控制（design-outline §2、§2.6、§3.4）：
 - [ ] **环境一等公民**：env CRUD；绑定表 `(env, 逻辑名) → 坐标/连接串`，环境克隆
@@ -193,6 +209,7 @@ src/
   query.rs        【新】IR + 编译器 + 方言后端 trait
   existence.rs    【新】存在性校验（列引用 × schema 快照）
   binding.rs      【新】环境/绑定表/健康诊断/导出包生成
+  release.rs      【新】版本发布（commit × 环境指针）+ 发布台账 + 消费只读快照
   gravitino.rs    【新】REST 客户端 + exporter
   trino.rs        【新】查询执行代理
   ontology_rules  【新】关系语义/等价重构/降格四条件（validation 扩展）
@@ -203,6 +220,7 @@ frontend/
   MappingEditor   【新】第三视图
   OntologyCanvas  【重写】按 design/ontology-demo.html 渲染规范
   EnvBinding.tsx  【新】环境与绑定管理
+  VersionBar      【新】版本条：提交/历史/分支/发布（内嵌本体与语义模型页，非独立页面）
 agent/            【新】Python FastAPI：LLM 编排 + 工具
 ```
 
@@ -216,7 +234,7 @@ agent/            【新】Python FastAPI：LLM 编排 + 工具
 |--------|------|----------|
 | M1 | P0 | 官方 validate.py round-trip 通过；source 环境令牌被拒 |
 | M2 | P1 | 10 题编译基准 + EXPLAIN 全过；骨架 metric 全生命周期演示 |
-| M3 | P2 | **跨环境迁移演练全绿**（导出→导入→填令牌→造数→冒烟查询）；Gravitino 双 catalog 可查 |
+| M3 | P2 | **跨环境迁移演练全绿**（导出→导入→填令牌→造数→冒烟查询）；Gravitino 双 catalog 可查；**发布闭环**：改模型→提交→发布到 dev→消费接口不变→发布到 prod 才生效 |
 | M4 | P3 | 20 题集 ≥80% 一次过、0 幻觉 SQL |
 | M5 | P4 | OntologyMap 导出过官方校验；升格/降格往返无损；画布符合渲染规范 |
 | M6 | P5 | OIDC + 审计；metrics 开放 API |

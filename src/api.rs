@@ -2,6 +2,7 @@ use crate::ddl::generate_semantic_ddl;
 use crate::export::{self, OSSIE_VERSION};
 use crate::model::*;
 use crate::platform;
+use crate::release;
 use crate::validation;
 use crate::vcs::{self, BranchFrom, ModelError};
 use axum::extract::{Path, Query, State};
@@ -116,6 +117,26 @@ struct CreateTenantReq {
 #[derive(Deserialize)]
 struct SettingsReq {
     values: std::collections::BTreeMap<String, String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ReleaseReq {
+    environment: String,
+    #[serde(default)]
+    commit_id: Option<String>,
+    #[serde(default)]
+    message: Option<String>,
+    #[serde(default = "default_author")]
+    author: String,
+}
+
+#[derive(Deserialize)]
+struct ReleasedQuery {
+    #[serde(default)]
+    environment: Option<String>,
+    #[serde(default)]
+    format: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -336,6 +357,16 @@ pub fn router(pool: AnyPool) -> Router {
             post(test_data_source),
         )
         .route("/api/settings", get(get_settings).put(put_settings))
+        // ---- version release (dev/prod boundary, design-ouline §1.5) ----
+        .route(
+            "/api/repos/{repo_id}/releases",
+            get(list_releases).post(create_release),
+        )
+        .route(
+            "/api/repos/{repo_id}/releases/{release_id}",
+            delete(delete_release),
+        )
+        .route("/api/repos/{repo_id}/released", get(released_document))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state);
@@ -479,6 +510,113 @@ async fn put_settings(
     let tenant = q.resolve();
     let values = platform::put_settings(&state.pool, &tenant, &req.values).await?;
     Ok(Json(json!({ "tenantId": tenant, "values": values })))
+}
+
+// ---------------------------------------------------------------------------
+// Releases: the read side of the model (consumers never touch the working tree)
+// ---------------------------------------------------------------------------
+
+async fn list_releases(
+    State(state): State<AppState>,
+    Path(repo_id): Path<String>,
+) -> ApiResult<Json<Vec<release::ReleaseRow>>> {
+    Ok(Json(release::list_releases(&state.pool, &repo_id).await?))
+}
+
+async fn create_release(
+    State(state): State<AppState>,
+    Path(repo_id): Path<String>,
+    Json(req): Json<ReleaseReq>,
+) -> ApiResult<(StatusCode, Json<release::ReleaseRow>)> {
+    let commit_id = match req.commit_id.as_deref().filter(|c| !c.trim().is_empty()) {
+        Some(explicit) => {
+            if vcs::get_commit(&state.pool, &repo_id, explicit).await?.is_none() {
+                return Err(ApiError::Bad(format!("commit `{explicit}` not found")));
+            }
+            explicit.to_string()
+        }
+        None => {
+            let branch = vcs::working_branch(&state.pool, &repo_id).await?;
+            branch.head_commit_id.ok_or_else(|| {
+                ApiError::Bad("current branch has no commit to release".into())
+            })?
+        }
+    };
+
+    // Gate: the released snapshot must be structurally valid (layer-1 errors).
+    let snapshot = vcs::commit_snapshot(&state.pool, &commit_id).await?;
+    let issues = validation::validate_snapshot(&snapshot);
+    if validation::has_errors(&issues) {
+        return Err(ApiError::Validation { issues });
+    }
+
+    let row = release::publish(
+        &state.pool,
+        &repo_id,
+        &req.environment,
+        &commit_id,
+        req.message.as_deref(),
+        &req.author,
+    )
+    .await?;
+    Ok((StatusCode::CREATED, Json(row)))
+}
+
+async fn delete_release(
+    State(state): State<AppState>,
+    Path((_repo_id, release_id)): Path<(String, String)>,
+) -> ApiResult<Json<Value>> {
+    release::delete_release(&state.pool, &release_id).await?;
+    Ok(Json(json!({ "deleted": true })))
+}
+
+/// Returns the OSSIE document currently published to an environment — the only
+/// model consumers should read.
+async fn released_document(
+    State(state): State<AppState>,
+    Path(repo_id): Path<String>,
+    Query(q): Query<ReleasedQuery>,
+) -> ApiResult<Response> {
+    let environment = q
+        .environment
+        .as_deref()
+        .filter(|e| !e.trim().is_empty())
+        .unwrap_or(release::DEFAULT_ENVIRONMENT);
+    let Some(row) = release::latest_release(&state.pool, &repo_id, environment).await? else {
+        return Err(ApiError::NotFound(format!(
+            "no release published to `{environment}`"
+        )));
+    };
+    let repo = vcs::get_repo(&state.pool, &repo_id).await?;
+    let snapshot = vcs::commit_snapshot(&state.pool, &row.commit_id).await?;
+    let doc = export::snapshot_to_doc(&snapshot, &repo.name, repo.description.as_deref());
+
+    let format = q.format.as_deref().unwrap_or("yaml");
+    let (content_type, body) = if format == "json" {
+        ("application/json", export::to_json(&doc)?)
+    } else {
+        ("application/yaml", export::to_yaml(&doc)?)
+    };
+    let mut response = body.into_response();
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        content_type.parse().map_err(|_| {
+            ApiError::Internal("failed to build content type".into())
+        })?,
+    );
+    response.headers_mut().insert(
+        "x-ossie-release",
+        row.id.parse().map_err(|_| {
+            ApiError::Internal("failed to build release header".into())
+        })?,
+    );
+    response.headers_mut().insert(
+        "x-ossie-commit",
+        row.commit_id.parse().map_err(|_| {
+            ApiError::Internal("failed to build commit header".into())
+        })?,
+    );
+    Ok(response)
 }
 
 async fn get_repo(

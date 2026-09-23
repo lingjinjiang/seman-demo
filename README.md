@@ -115,6 +115,9 @@ n 元虚拟实体 hub）：
 | PUT/DELETE | `/api/data-sources/{id}` | 更新 / 删除数据源 |
 | POST | `/api/data-sources/{id}/test` | 测试连接 |
 | GET/PUT | `/api/settings?tenant=` | 按租户读取 / 写入设置 |
+| GET/POST | `/api/repos/{id}/releases` | 发布记录列表 / 发布当前提交到环境 |
+| DELETE | `/api/repos/{id}/releases/{releaseId}` | 删除发布记录（不删提交） |
+| GET | `/api/repos/{id}/released?environment=` | **消费方只读**：该环境当前发布的 OSSIE 文档 |
 
 工件 kind：`concept`、`ontology_relationship`、`dataset`、`semantic_relationship`、`metric`。
 
@@ -128,7 +131,8 @@ n 元虚拟实体 hub）：
   关系」（关系名、元数、角色、多重性、verbalizes）。另提供**图谱**（二元有向边 + 箭头端
   multiplicity、一元节点徽章、n 元虚线 hub、identify_by 🔑）与 **Raw**（OSSIE YAML）视图。
 - **语义模型**：数据集 / 关系 / 度量三张表，另有 **DDL / 部署**（可部署到已注册数据源）与 **Raw**。
-- **版本控制**：分支表、历史表（点开看 diff）、提交与合并、导入导出。
+- **版本与发布**（内嵌在本体 / 语义模型页顶部的版本条，非独立页面）：分支切换、未提交更改、
+  提交、历史与 diff、导入导出；以及**发布**——把某个提交推送到 dev / test / prod。
 - **数据源**：PostgreSQL 连接管理（坐标、默认 schema、连接测试）；**仅支持 PostgreSQL**。
 - **设置**：默认提交作者、默认部署 schema、租户管理与切换、规范版本与存储信息。
 
@@ -136,6 +140,19 @@ n 元虚拟实体 hub）：
 当前为应用层过滤，尚未接入鉴权/RBAC（见 roadmap P5）。
 
 > 设计约束：环境令牌（host / 连接串 / metalake）只存在于数据源与设置中，**永不写入 OSSIE 文档**。
+
+**开发态与应用态分离**：建模发生在工作区（draft）与分支上；发布（release）是
+`提交 × 环境` 的不可变指针，**消费方只读已发布版本**——工作区里正在改的东西不会立刻影响使用。
+回滚 = 把历史提交重新发布为一条新记录，历史永不重写。
+
+```bash
+# 消费方读取某环境当前发布的模型（唯一对外读取入口）
+curl http://127.0.0.1:8080/api/repos/<repoId>/released?environment=prod
+# 发布当前分支最新提交
+curl -X POST http://127.0.0.1:8080/api/repos/<repoId>/releases \
+  -H 'content-type: application/json' \
+  -d '{"environment":"prod","message":"v1.2 新增订单域","author":"alice"}'
+```
 
 ## 与 Apache Ossie 规范的对齐
 

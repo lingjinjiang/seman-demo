@@ -5,5 +5,6 @@ pub mod export;
 pub mod model;
 pub mod ontology;
 pub mod platform;
+pub mod release;
 pub mod validation;
 pub mod vcs;

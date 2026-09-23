@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Modal } from "../components/Modal";
 import { DataTable, PageHeader, StatCard, type Column } from "../components/ui";
@@ -8,12 +8,16 @@ export function OverviewPage({
   tenant,
   tenantName,
   repos,
+  createRequest,
   refresh,
   onOpen
 }: {
   tenant: string;
   tenantName: string;
   repos: Repo[];
+  /** Incremented by the shell when the user heads to a modeling page with no
+   *  repository yet — turns that click into the creation flow (§1.6). */
+  createRequest?: number;
   refresh: () => Promise<void>;
   onOpen: (repoId: string) => void;
 }) {
@@ -22,6 +26,10 @@ export function OverviewPage({
   const [description, setDescription] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (createRequest && createRequest > 0) setOpen(true);
+  }, [createRequest]);
 
   const create = async () => {
     setBusy(true);
