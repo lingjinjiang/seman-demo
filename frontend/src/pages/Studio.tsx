@@ -22,7 +22,7 @@ type PageKey = "overview" | "ontology" | "semantic" | "dataSources" | "settings"
 const NAV: { group: string; items: { key: PageKey; label: string; icon: string }[] }[] = [
   {
     group: "工作区",
-    items: [{ key: "overview", label: "项目概览", icon: "▦" }]
+    items: [{ key: "overview", label: "工作台", icon: "▦" }]
   },
   {
     group: "建模",
@@ -197,6 +197,7 @@ export function Studio() {
               setRepoId(id);
               setPage("ontology");
             }}
+            onManageTenants={() => setPage("settings")}
           />
         );
       case "ontology":

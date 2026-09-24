@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 function splitLines(s: string): string[] {
   return s
@@ -143,13 +143,17 @@ export function ConceptForm({
   onSave,
   onDelete,
   busy,
-  onCancel
+  onCancel,
+  extraSection
 }: {
   body: any;
   onSave: (key: string, body: any) => void;
   onDelete?: () => void;
   busy?: boolean;
   onCancel?: () => void;
+  /** Rendered between the fields and the action bar, so a concept's own
+   *  relationships sit *above* the save button rather than below it. */
+  extraSection?: ReactNode;
 }) {
   const [name, setName] = useState(body.name || "");
   const [type, setType] = useState(body.type || "EntityType");
@@ -209,6 +213,7 @@ export function ConceptForm({
         onChange={setDerivedBy}
         placeholder={'例如 EXISTS ( Person.earns )'}
       />
+      {extraSection && <div className="form-section">{extraSection}</div>}
       <SaveBar
         onSave={save}
         onDelete={onDelete}
@@ -227,6 +232,8 @@ export function ConceptForm({
 export function OntologyRelForm({
   body,
   concepts,
+  conceptTypes,
+  lockOwner,
   onSave,
   onDelete,
   busy,
@@ -234,12 +241,21 @@ export function OntologyRelForm({
 }: {
   body: any;
   concepts: string[];
+  /** concept name -> ConceptType, used to label the pickers. */
+  conceptTypes?: Record<string, string>;
+  /** When the caller owns the declaring concept (e.g. a concept being created),
+   *  the owner picker is replaced by a read-only note. */
+  lockOwner?: boolean;
   onSave: (key: string, body: any) => void;
   onDelete?: () => void;
   busy?: boolean;
   onCancel?: () => void;
 }) {
-  const [owner, setOwner] = useState(body._owner || concepts[0] || "");
+  // When the caller owns the declaring concept (a concept being created), the
+  // owner must stay empty rather than falling back to the first concept.
+  const [owner, setOwner] = useState(
+    lockOwner ? body._owner || "" : body._owner || concepts[0] || ""
+  );
   const [name, setName] = useState(body.name || "");
   const [multiplicity, setMultiplicity] = useState(body.multiplicity || "");
   const [roles, setRoles] = useState<any[]>(
@@ -255,10 +271,54 @@ export function OntologyRelForm({
 
   // §4.2: multiplicity only applies when a relationship has more than one role.
   // OneToOne is defined for binary relationships only; many-to-many stays empty.
-  const arity = 1 + roles.filter((r) => r.concept).length;
+  const filledRoles = roles.filter((r) => r.concept);
+  const arity = 1 + filledRoles.length;
   const multOptions =
     arity <= 1 ? [] : arity === 2 ? ["ManyToOne", "OneToOne"] : ["ManyToOne"];
   const effectiveMultiplicity = arity <= 1 ? "" : multiplicity;
+
+  const typeLabel = (c: string) =>
+    conceptTypes?.[c] === "EntityType"
+      ? "实体"
+      : conceptTypes?.[c] === "ValueType"
+        ? "值类型"
+        : "";
+
+  const conceptLabel = (c: string) => {
+    const t = typeLabel(c);
+    return t ? `${c}（${t}）` : c;
+  };
+
+  // Role names as expressions will see them: the explicit name, else the
+  // playing concept. Used to preview verbalizes and to spot collisions.
+  const roleRefs = [owner, ...filledRoles.map((r) => r.name || r.concept)];
+
+  const problems: string[] = [];
+  if (!lockOwner && !owner.trim()) problems.push("需要选择声明概念（第一角色）");
+  if (!name.trim()) problems.push("需要填写关系名");
+  if (roles.some((r) => !r.concept && String(r.name).trim()))
+    problems.push("有角色只填了角色名但没有选择概念");
+  for (const c of [owner, ...filledRoles.map((r) => r.concept)]) {
+    if (c && concepts.length > 0 && !concepts.includes(c))
+      problems.push(`概念 \`${c}\` 不存在（可能已被删除），请重新选择`);
+  }
+  const seen: Record<string, number> = {};
+  for (const c of [owner, ...filledRoles.map((r) => r.concept)])
+    seen[c] = (seen[c] || 0) + 1;
+  for (const [c, n] of Object.entries(seen)) {
+    if (n > 1 && c) {
+      const named = filledRoles.filter((r) => r.concept === c && r.name).length;
+      const ownerCounts = owner === c ? 1 : 0;
+      if (named + ownerCounts < n)
+        problems.push(`概念 \`${c}\` 扮演多个角色，每个同名角色都需要填写角色名以区分`);
+    }
+  }
+  const refCounts: Record<string, number> = {};
+  for (const r of roleRefs.filter(Boolean)) refCounts[r] = (refCounts[r] || 0) + 1;
+  for (const [r, n] of Object.entries(refCounts))
+    if (n > 1) problems.push(`角色名 \`${r}\` 重复，表达式将无法区分`);
+  if (!verbalizes.trim())
+    problems.push("至少需要一条自然语言表达（verbalizes）");
 
   // §4.2: the declaring (owner) side defines the multiplicity direction, so
   // switching it must warn — the constraint flips with the edge.
@@ -295,14 +355,33 @@ export function OntologyRelForm({
 
   return (
     <div className="form">
-      <div className="row">
-        <SelectRow
-          label="起始概念（owner，第一角色）"
-          value={owner}
-          onChange={changeOwner}
-          options={concepts}
-        />
+      {lockOwner ? (
+        <div className="muted">
+          声明概念（第一角色）：
+          <span className="mono">
+            {owner || "（随概念一起创建）"}
+          </span>
+        </div>
+      ) : (
+        <div className="row">
+          <SelectRow
+            label="声明概念（第一角色 —— 关系归属于它）"
+            value={owner}
+            onChange={changeOwner}
+            options={concepts}
+            placeholder="选择概念"
+          />
+          <TextRow label="关系名" value={name} onChange={setName} />
+        </div>
+      )}
+      {lockOwner && (
         <TextRow label="关系名" value={name} onChange={setName} />
+      )}
+      <div className="muted">
+        关系标识：
+        <span className="mono">
+          {owner && name.trim() ? ` ${owner}.${name.trim()}` : "（填写后生成）"}
+        </span>
       </div>
       <SelectRow
         label={
@@ -319,10 +398,13 @@ export function OntologyRelForm({
       />
       <div>
         <div className="muted" style={{ marginBottom: 6 }}>
-          其他角色（第一个角色即 owner；roles 顺序即语义，无法用角色名区分的同概念多角色必须命名）
+          其他角色 —— 顺序即语义（第 2、3… 个角色按此顺序参与约束）
         </div>
         {roles.map((r, i) => (
-          <div key={i} className="row" style={{ marginBottom: 6 }}>
+          <div key={i} className="role-row">
+            <span className="badge" title="角色位置">
+              #{i + 2}
+            </span>
             <select
               value={r.concept}
               onChange={(e) =>
@@ -332,7 +414,7 @@ export function OntologyRelForm({
               <option value="">选择概念</option>
               {concepts.map((c) => (
                 <option key={c} value={c}>
-                  {c}
+                  {conceptLabel(c)}
                 </option>
               ))}
             </select>
@@ -381,7 +463,11 @@ export function OntologyRelForm({
         label="自然语言表达（verbalizes，每行一条）"
         value={verbalizes}
         onChange={setVerbalizes}
-        placeholder={'例如 {Person} earns {Salary}'}
+        placeholder={
+          roleRefs.filter(Boolean).length
+            ? `例如 {${roleRefs.filter(Boolean).join("} … {")}}`
+            : "例如 {Person} earns {Salary}"
+        }
       />
       <TextRow label="描述" value={description} onChange={setDescription} />
       <AreaRow
@@ -394,12 +480,23 @@ export function OntologyRelForm({
         value={derivedBy}
         onChange={setDerivedBy}
       />
+      {problems.length > 0 && (
+        <ul className="issues">
+          {problems.map((p, i) => (
+            <li key={i} className="warning">
+              {p}
+            </li>
+          ))}
+        </ul>
+      )}
       <SaveBar
         onSave={save}
         onDelete={onDelete}
         onCancel={onCancel}
         busy={busy}
-        canSave={!!name.trim() && !!owner.trim() && !!verbalizes.trim()}
+        canSave={
+          problems.length === 0 && !!name.trim() && !!verbalizes.trim()
+        }
       />
     </div>
   );

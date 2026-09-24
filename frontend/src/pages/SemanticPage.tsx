@@ -18,6 +18,24 @@ const KINDS: Record<string, string> = {
   metrics: "metric"
 };
 
+/** What would break if this artifact disappeared — shown before deleting. */
+function referencesTo(kind: string, key: string, artifacts: Artifact[]): string[] {
+  const out: string[] = [];
+  if (kind === "dataset") {
+    for (const r of artifacts.filter((a) => a.kind === "semantic_relationship")) {
+      if (r.body.from === key) out.push(`关系 ${r.key} 以它为 from`);
+      if (r.body.to === key) out.push(`关系 ${r.key} 以它为 to`);
+    }
+    for (const m of artifacts.filter((a) => a.kind === "metric")) {
+      const text = JSON.stringify(m.body.expression || {});
+      if (text.includes(`${key}.`)) {
+        out.push(`度量 ${m.key} 的表达式引用了 ${key}.*`);
+      }
+    }
+  }
+  return Array.from(new Set(out));
+}
+
 export function SemanticPage({
   version,
   tenant,
@@ -33,6 +51,10 @@ export function SemanticPage({
     null
   );
   const [busy, setBusy] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    kind: string;
+    key: string;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [sources, setSources] = useState<DataSource[]>([]);
@@ -104,13 +126,15 @@ export function SemanticPage({
     }
   };
 
-  const remove = async (kind: string, key: string) => {
-    if (!confirm(`删除 ${kind}:${key}？`)) return;
+  const performDelete = async () => {
+    if (!deleteTarget) return;
     setBusy(true);
+    setError(null);
     try {
-      await api.deleteArtifact(repoId, kind, key);
+      await api.deleteArtifact(repoId, deleteTarget.kind, deleteTarget.key);
       await refresh();
       setEditing(null);
+      setDeleteTarget(null);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -205,7 +229,7 @@ export function SemanticPage({
           <button
             className="sm danger"
             disabled={busy}
-            onClick={() => remove("dataset", d.key)}
+            onClick={() => setDeleteTarget({ kind: "dataset", key: d.key })}
           >
             删除
           </button>
@@ -248,7 +272,7 @@ export function SemanticPage({
           <button
             className="sm danger"
             disabled={busy}
-            onClick={() => remove("semantic_relationship", r.key)}
+            onClick={() => setDeleteTarget({ kind: "semantic_relationship", key: r.key })}
           >
             删除
           </button>
@@ -307,7 +331,7 @@ export function SemanticPage({
           <button
             className="sm danger"
             disabled={busy}
-            onClick={() => remove("metric", m.key)}
+            onClick={() => setDeleteTarget({ kind: "metric", key: m.key })}
           >
             删除
           </button>
@@ -531,7 +555,7 @@ export function SemanticPage({
                 body={artifact?.body || {}}
                 busy={busy}
                 onSave={(key, body) => save("dataset", key, body)}
-                onDelete={artifact ? () => remove("dataset", editing.key) : undefined}
+                onDelete={artifact ? () => setDeleteTarget({ kind: "dataset", key: editing.key }) : undefined}
                 onCancel={() => setEditing(null)}
               />
             )}
@@ -544,7 +568,7 @@ export function SemanticPage({
                 onSave={(key, body) => save("semantic_relationship", key, body)}
                 onDelete={
                   artifact
-                    ? () => remove("semantic_relationship", editing.key)
+                    ? () => setDeleteTarget({ kind: "semantic_relationship", key: editing.key })
                     : undefined
                 }
                 onCancel={() => setEditing(null)}
@@ -556,10 +580,52 @@ export function SemanticPage({
                 body={artifact?.body || {}}
                 busy={busy}
                 onSave={(key, body) => save("metric", key, body)}
-                onDelete={artifact ? () => remove("metric", editing.key) : undefined}
+                onDelete={artifact ? () => setDeleteTarget({ kind: "metric", key: editing.key }) : undefined}
                 onCancel={() => setEditing(null)}
               />
             )}
+          </div>
+        </Modal>
+      )}
+
+      {deleteTarget && (
+        <Modal title="确认删除" onClose={() => setDeleteTarget(null)}>
+          <div>
+            即将删除{" "}
+            <span className="mono">
+              {deleteTarget.kind} {deleteTarget.key}
+            </span>
+          </div>
+          {(() => {
+            const refs = referencesTo(
+              deleteTarget.kind,
+              deleteTarget.key,
+              working.artifacts
+            );
+            if (refs.length === 0) {
+              return <div className="muted">未检测到其他引用。</div>;
+            }
+            return (
+              <>
+                <div className="warn-text">检测到以下引用，删除后它们会失效：</div>
+                <ul className="issues">
+                  {refs.map((r, i) => (
+                    <li key={i} className="warning">
+                      {r}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            );
+          })()}
+          {error && <div className="error-text">{error}</div>}
+          <div className="modal-actions">
+            <button onClick={() => setDeleteTarget(null)} disabled={busy}>
+              取消
+            </button>
+            <button className="danger" onClick={performDelete} disabled={busy}>
+              仍然删除
+            </button>
           </div>
         </Modal>
       )}
