@@ -8,7 +8,7 @@ import {
 import { Modal } from "../components/Modal";
 import { DataTable, PageHeader, Tabs, type Column } from "../components/ui";
 import { VersionBar } from "../components/VersionBar";
-import type { Artifact, DataSource, Issue, RepoVersion } from "../types";
+import type { Artifact, DataSource, Issue, ProjectVersion } from "../types";
 
 type TabKey = "datasets" | "relationships" | "metrics" | "ddl" | "raw";
 
@@ -41,11 +41,11 @@ export function SemanticPage({
   tenant,
   refresh
 }: {
-  version: RepoVersion;
+  version: ProjectVersion;
   tenant: string;
   refresh: () => Promise<void>;
 }) {
-  const { repoId, working } = version;
+  const { projectId, working } = version;
   const [tab, setTab] = useState<TabKey>("datasets");
   const [editing, setEditing] = useState<{ kind: string; key: string } | null>(
     null
@@ -96,13 +96,13 @@ export function SemanticPage({
     if (tab !== "raw") return;
     let cancelled = false;
     api
-      .exportYaml(repoId)
+      .exportYaml(projectId)
       .then((text) => !cancelled && setRaw(text))
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
-  }, [tab, repoId, working]);
+  }, [tab, projectId, working]);
 
   const openEditor = (kind: string, key: string) => {
     setError(null);
@@ -115,7 +115,7 @@ export function SemanticPage({
     setError(null);
     setIssues([]);
     try {
-      await api.upsertArtifact(repoId, kind, key, body);
+      await api.upsertArtifact(projectId, kind, key, body);
       await refresh();
       setEditing(null);
     } catch (e: any) {
@@ -131,7 +131,7 @@ export function SemanticPage({
     setBusy(true);
     setError(null);
     try {
-      await api.deleteArtifact(repoId, deleteTarget.kind, deleteTarget.key);
+      await api.deleteArtifact(projectId, deleteTarget.kind, deleteTarget.key);
       await refresh();
       setEditing(null);
       setDeleteTarget(null);
@@ -147,7 +147,7 @@ export function SemanticPage({
     setNotice(null);
     setError(null);
     try {
-      const out = await api.semanticPreview(repoId, schema);
+      const out = await api.semanticPreview(projectId, schema);
       setDdl(out.sql);
     } catch (e: any) {
       setError(e.message);
@@ -166,7 +166,7 @@ export function SemanticPage({
     setError(null);
     setNotice(null);
     try {
-      const out = await api.semanticDeployToSource(repoId, sourceId, schema);
+      const out = await api.semanticDeployToSource(projectId, sourceId, schema);
       setDdl(out.sql);
       setNotice(`部署完成，执行 ${out.statements} 条语句`);
     } catch (e: any) {
@@ -389,10 +389,10 @@ export function SemanticPage({
         actions={addButton()}
       />
 
-      {/* Same repository history as the Ontology page — version spans both
+      {/* Same project history as the Ontology page — version spans both
           sections of the document (design-ouline §1.5 规则 1). */}
       <VersionBar
-        repoId={repoId}
+        projectId={projectId}
         working={working}
         branches={version.branches}
         commits={version.commits}

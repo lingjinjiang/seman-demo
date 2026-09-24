@@ -117,7 +117,10 @@ ontology -(OntologyMap/mapping, 单向)-> dataset/field
 - **一份文档 = 一个语义模型**，无跨模型引用（spec.md）。
 - **关系不是与概念平级的一等对象**：按 ontology 规范，关系归属于「第一角色」所在的概念
   （artifact key 形如 `Concept.relationship`，UI 中只能在概念详情内创建/编辑，不做顶层关系入口）。
-- **版本以仓库为粒度，且是能力不是独立功能**：本体与语义模型同属一份 OSSIE 文档、存在单向依赖，
+- **术语口径：项目 Project**。代码里表名/字段一律用 `projects` / `project_id`（历史名 `repos`
+  已废弃，旧库由 `db.rs` 的 `RENAME_MIGRATIONS` 自动迁移）；**一个项目 = 一份 OSSIE 文档 = 一个语义模型**。
+  本体与语义模型是同一份文档的两个**视图**，不是两个可授权/可独立版本化的资源（`access-control.md` §3.3）。
+- **版本以项目为粒度，且是能力不是独立功能**：本体与语义模型同属一份 OSSIE 文档、存在单向依赖，
   因此同版本演进（不做按 section 的独立版本）；提交/历史/分支/发布内嵌在本体与语义模型页共用，
   不占顶层导航（design-ouline §1.5）。
 - **开发态与应用态分离**：工作区 draft → commit → **release（commit × 环境）**；

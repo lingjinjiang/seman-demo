@@ -1,4 +1,4 @@
-export interface Repo {
+export interface Project {
   id: string;
   tenantId: string;
   name: string;
@@ -54,7 +54,7 @@ export interface SettingsView {
 /** A commit published to an environment — the only thing consumers read. */
 export interface Release {
   id: string;
-  repoId: string;
+  projectId: string;
   environment: string;
   commitId: string;
   message?: string | null;
@@ -63,9 +63,9 @@ export interface Release {
   createdAt: number;
 }
 
-/** Everything the version bar and history need for one repository. */
-export interface RepoVersion {
-  repoId: string;
+/** Everything the version bar and history need for one project. */
+export interface ProjectVersion {
+  projectId: string;
   working: WorkingView;
   branches: Branch[];
   commits: Commit[];
@@ -74,7 +74,7 @@ export interface RepoVersion {
 
 export interface Branch {
   id: string;
-  repoId: string;
+  projectId: string;
   name: string;
   headCommitId?: string | null;
   isDefault: boolean;
@@ -84,7 +84,7 @@ export interface Branch {
 
 export interface Commit {
   id: string;
-  repoId: string;
+  projectId: string;
   message: string;
   author: string;
   parentCommitId?: string | null;
@@ -107,7 +107,7 @@ export interface Issue {
 }
 
 export interface WorkingView {
-  repo: Repo;
+  project: Project;
   branch: Branch;
   baseCommitId?: string | null;
   artifacts: Artifact[];

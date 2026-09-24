@@ -18,14 +18,14 @@ function statusBadge(status: Change["status"]) {
 }
 
 export function VersionBar({
-  repoId,
+  projectId,
   working,
   branches,
   commits,
   releases,
   refresh
 }: {
-  repoId: string;
+  projectId: string;
   working: WorkingView;
   branches: Branch[];
   commits: Commit[];
@@ -41,7 +41,7 @@ export function VersionBar({
 
   const loadChanges = async () => {
     try {
-      setChanges(await api.changes(repoId));
+      setChanges(await api.changes(projectId));
     } catch {
       /* surfaced through the page-level error banner */
     }
@@ -50,7 +50,7 @@ export function VersionBar({
   useEffect(() => {
     loadChanges();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [repoId, commits.length]);
+  }, [projectId, commits.length]);
 
   const latestByEnv = useMemo(() => {
     const map = new Map<string, Release>();
@@ -66,11 +66,11 @@ export function VersionBar({
 
   const exportYaml = async () => {
     try {
-      const text = await api.exportYaml(repoId);
+      const text = await api.exportYaml(projectId);
       const blob = new Blob([text], { type: "application/x-yaml" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = `${working.repo.name}.ossie.yaml`;
+      a.download = `${working.project.name}.ossie.yaml`;
       a.click();
       URL.revokeObjectURL(a.href);
     } catch (e: any) {
@@ -85,7 +85,7 @@ export function VersionBar({
     try {
       const content = await file.text();
       const format = file.name.endsWith(".json") ? "json" : "yaml";
-      const out = await api.importDoc(repoId, format, content);
+      const out = await api.importDoc(projectId, format, content);
       setNotice(`已导入 ${out.imported} 个工件`);
       await refresh();
       await loadChanges();
@@ -107,7 +107,7 @@ export function VersionBar({
             onChange={async (e) => {
               setBusy(true);
               try {
-                await api.checkoutBranch(repoId, e.target.value);
+                await api.checkoutBranch(projectId, e.target.value);
                 await refresh();
               } catch (err: any) {
                 setError(err.message);
@@ -197,7 +197,7 @@ export function VersionBar({
 
       {open === "commit" && (
         <CommitModal
-          repoId={repoId}
+          projectId={projectId}
           changes={changes}
           defaultAuthor={localStorage.getItem("ossie.author") || "developer"}
           onClose={() => setOpen(null)}
@@ -211,7 +211,7 @@ export function VersionBar({
 
       {open === "publish" && (
         <PublishModal
-          repoId={repoId}
+          projectId={projectId}
           head={head}
           releases={releases}
           defaultAuthor={localStorage.getItem("ossie.author") || "developer"}
@@ -225,7 +225,7 @@ export function VersionBar({
 
       {open === "history" && (
         <HistoryModal
-          repoId={repoId}
+          projectId={projectId}
           working={working}
           branches={branches}
           commits={commits}
@@ -244,13 +244,13 @@ export function VersionBar({
 // ---------------------------------------------------------------------------
 
 function CommitModal({
-  repoId,
+  projectId,
   changes,
   defaultAuthor,
   onClose,
   onDone
 }: {
-  repoId: string;
+  projectId: string;
   changes: Change[];
   defaultAuthor: string;
   onClose: () => void;
@@ -266,7 +266,7 @@ function CommitModal({
     setError(null);
     try {
       localStorage.setItem("ossie.author", author);
-      await api.createCommit(repoId, message.trim(), author || "anonymous");
+      await api.createCommit(projectId, message.trim(), author || "anonymous");
       await onDone();
     } catch (e: any) {
       setError(e.message);
@@ -329,14 +329,14 @@ function CommitModal({
 // ---------------------------------------------------------------------------
 
 function PublishModal({
-  repoId,
+  projectId,
   head,
   releases,
   defaultAuthor,
   onClose,
   onDone
 }: {
-  repoId: string;
+  projectId: string;
   head?: string | null;
   releases: Release[];
   defaultAuthor: string;
@@ -358,7 +358,7 @@ function PublishModal({
     try {
       localStorage.setItem("ossie.author", author);
       await api.createRelease(
-        repoId,
+        projectId,
         environment,
         message.trim(),
         author || "anonymous"
@@ -433,11 +433,11 @@ function PublishModal({
 }
 
 // ---------------------------------------------------------------------------
-// History: branches + commits + diff + merge (repository-scoped)
+// History: branches + commits + diff + merge (project-scoped)
 // ---------------------------------------------------------------------------
 
 function HistoryModal({
-  repoId,
+  projectId,
   working,
   branches,
   commits,
@@ -446,7 +446,7 @@ function HistoryModal({
   refresh,
   onClose
 }: {
-  repoId: string;
+  projectId: string;
   working: WorkingView;
   branches: Branch[];
   commits: Commit[];
@@ -470,7 +470,7 @@ function HistoryModal({
       return;
     }
     try {
-      const d = await api.diff(repoId, c.parentCommitId, c.id);
+      const d = await api.diff(projectId, c.parentCommitId, c.id);
       setDiff({ commit: c, changes: d.changes });
     } catch (e: any) {
       setError(e.message);
@@ -482,7 +482,7 @@ function HistoryModal({
     if (!name) return;
     setBusy(true);
     try {
-      await api.createBranch(repoId, name.trim());
+      await api.createBranch(projectId, name.trim());
       await refresh();
     } catch (e: any) {
       setError(e.message);
@@ -496,7 +496,7 @@ function HistoryModal({
     setBusy(true);
     setError(null);
     try {
-      const out = await api.merge(repoId, mergeFrom, mergeMessage, "developer");
+      const out = await api.merge(projectId, mergeFrom, mergeMessage, "developer");
       if (out.merged) {
         await refresh();
         setMergeMessage("");
@@ -542,7 +542,7 @@ function HistoryModal({
               onClick={async () => {
                 if (!confirm(`删除分支 ${b.name}？`)) return;
                 try {
-                  await api.deleteBranch(repoId, b.id);
+                  await api.deleteBranch(projectId, b.id);
                   await refresh();
                 } catch (e: any) {
                   setError(e.message);
@@ -735,7 +735,7 @@ function HistoryModal({
                 if (!confirm("将当前分支硬重置到该提交？")) return;
                 setBusy(true);
                 try {
-                  await api.reset(repoId, diff.commit.id);
+                  await api.reset(projectId, diff.commit.id);
                   setDiff(null);
                   await refresh();
                 } catch (e: any) {

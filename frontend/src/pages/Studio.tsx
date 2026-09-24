@@ -4,8 +4,8 @@ import type {
   Branch,
   Commit,
   Release,
-  Repo,
-  RepoVersion,
+  Project,
+  ProjectVersion,
   Tenant,
   WorkingView
 } from "../types";
@@ -45,9 +45,9 @@ export function Studio() {
   const [tenant, setTenant] = useState(
     () => localStorage.getItem("ossie.tenant") || "default"
   );
-  const [repos, setRepos] = useState<Repo[]>([]);
-  const [repoId, setRepoId] = useState<string>(
-    () => localStorage.getItem("ossie.repo") || ""
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectId, setProjectId] = useState<string>(
+    () => localStorage.getItem("ossie.project") || ""
   );
   const [page, setPage] = useState<PageKey>("overview");
   const [createRequest, setCreateRequest] = useState(0);
@@ -66,14 +66,14 @@ export function Studio() {
     }
   }, []);
 
-  // Loading repos also fixes up the selection: keep the remembered one if it
-  // still exists, otherwise fall back to the most recently updated repo, so the
+  // Loading projects also fixes up the selection: keep the remembered one if it
+  // still exists, otherwise fall back to the most recently updated project, so the
   // modeling pages are never dead on arrival.
-  const loadRepos = useCallback(async (targetTenant: string) => {
+  const loadProjects = useCallback(async (targetTenant: string) => {
     try {
-      const rows = await api.listRepos(targetTenant);
-      setRepos(rows);
-      setRepoId((current) =>
+      const rows = await api.listProjects(targetTenant);
+      setProjects(rows);
+      setProjectId((current) =>
         rows.some((r) => r.id === current) ? current : rows[0]?.id ?? ""
       );
     } catch (e: any) {
@@ -81,8 +81,8 @@ export function Studio() {
     }
   }, []);
 
-  const loadRepoData = useCallback(async (targetRepo: string) => {
-    if (!targetRepo) {
+  const loadProjectData = useCallback(async (targetProject: string) => {
+    if (!targetProject) {
       setWorking(null);
       setBranches([]);
       setCommits([]);
@@ -91,10 +91,10 @@ export function Studio() {
     }
     try {
       const [w, b, c, rel] = await Promise.all([
-        api.getWorking(targetRepo),
-        api.listBranches(targetRepo),
-        api.listCommits(targetRepo),
-        api.listReleases(targetRepo)
+        api.getWorking(targetProject),
+        api.listBranches(targetProject),
+        api.listCommits(targetProject),
+        api.listReleases(targetProject)
       ]);
       setWorking(w);
       setBranches(b);
@@ -113,27 +113,27 @@ export function Studio() {
 
   useEffect(() => {
     localStorage.setItem("ossie.tenant", tenant);
-    loadRepos(tenant);
-  }, [tenant, loadRepos]);
+    loadProjects(tenant);
+  }, [tenant, loadProjects]);
 
   useEffect(() => {
-    if (repoId) localStorage.setItem("ossie.repo", repoId);
-    loadRepoData(repoId);
-  }, [repoId, loadRepoData]);
+    if (projectId) localStorage.setItem("ossie.project", projectId);
+    loadProjectData(projectId);
+  }, [projectId, loadProjectData]);
 
-  const refreshRepo = useCallback(async () => {
-    await Promise.all([loadRepoData(repoId), loadRepos(tenant)]);
-  }, [repoId, tenant, loadRepoData, loadRepos]);
+  const refreshProject = useCallback(async () => {
+    await Promise.all([loadProjectData(projectId), loadProjects(tenant)]);
+  }, [projectId, tenant, loadProjectData, loadProjects]);
 
   const tenantName = useMemo(
     () => tenants.find((t) => t.id === tenant)?.name || tenant,
     [tenants, tenant]
   );
 
-  const version: RepoVersion | null = useMemo(() => {
+  const version: ProjectVersion | null = useMemo(() => {
     if (!working) return null;
     return {
-      repoId: working.repo.id,
+      projectId: working.project.id,
       working,
       branches,
       commits,
@@ -141,17 +141,17 @@ export function Studio() {
     };
   }, [working, branches, commits, releases]);
 
-  const repoScoped = page === "ontology" || page === "semantic";
+  const projectScoped = page === "ontology" || page === "semantic";
   const errorCount = working
     ? working.issues.filter((i) => i.level === "error").length
     : 0;
   const warnCount = working ? working.issues.length - errorCount : 0;
 
-  // Never make a nav click a no-op: with no repository yet, send the user
+  // Never make a nav click a no-op: with no project yet, send the user
   // straight into the creation flow instead of showing a dead page.
   const go = (key: PageKey) => {
-    const needsRepo = key === "ontology" || key === "semantic";
-    if (needsRepo && repos.length === 0) {
+    const needsProject = key === "ontology" || key === "semantic";
+    if (needsProject && projects.length === 0) {
       setPage("overview");
       setCreateRequest((n) => n + 1);
       return;
@@ -160,14 +160,14 @@ export function Studio() {
   };
 
   const renderPage = () => {
-    if (repoScoped && !version) {
+    if (projectScoped && !version) {
       return (
         <div className="panel panel-pad">
           <div className="empty">
-            {repos.length === 0
-              ? "当前租户还没有模型仓库"
+            {projects.length === 0
+              ? "当前租户还没有项目"
               : "正在加载模型…"}
-            {repos.length === 0 && (
+            {projects.length === 0 && (
               <div style={{ marginTop: 12 }}>
                 <button
                   className="primary"
@@ -176,7 +176,7 @@ export function Studio() {
                     setCreateRequest((n) => n + 1);
                   }}
                 >
-                  + 新建模型仓库
+                  + 新建项目
                 </button>
               </div>
             )}
@@ -190,24 +190,25 @@ export function Studio() {
           <OverviewPage
             tenant={tenant}
             tenantName={tenantName}
-            repos={repos}
+            projects={projects}
             createRequest={createRequest}
-            refresh={() => loadRepos(tenant)}
+            refresh={() => loadProjects(tenant)}
             onOpen={(id) => {
-              setRepoId(id);
+              setProjectId(id);
               setPage("ontology");
             }}
             onManageTenants={() => setPage("settings")}
+            onOpenDataSources={() => setPage("dataSources")}
           />
         );
       case "ontology":
-        return <OntologyPage version={version!} refresh={refreshRepo} />;
+        return <OntologyPage version={version!} refresh={refreshProject} />;
       case "semantic":
         return (
           <SemanticPage
             version={version!}
             tenant={tenant}
-            refresh={refreshRepo}
+            refresh={refreshProject}
           />
         );
       case "dataSources":
@@ -269,6 +270,11 @@ export function Studio() {
                   )}
                 </div>
               ))}
+              {/* Modeling pages are project-scoped; say so instead of letting a
+                  click land somewhere unexpected. */}
+              {group.group === "建模" && projects.length === 0 && (
+                <div className="nav-hint">先创建一个项目</div>
+              )}
             </div>
           ))}
         </div>
@@ -295,10 +301,10 @@ export function Studio() {
       <div className="main">
         <header className="topbar">
           <div className="field">
-            模型仓库
-            <select value={repoId} onChange={(e) => setRepoId(e.target.value)}>
-              {repos.length === 0 && <option value="">（暂无）</option>}
-              {repos.map((r) => (
+            项目
+            <select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+              {projects.length === 0 && <option value="">（暂无）</option>}
+              {projects.map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.name}
                 </option>

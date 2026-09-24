@@ -26,36 +26,36 @@ fn person(name: &str) -> Value {
 }
 
 #[tokio::test]
-async fn repo_lifecycle_commits_diff_reset_branch_merge() {
+async fn project_lifecycle_commits_diff_reset_branch_merge() {
     let pool = test_pool().await;
-    let repo = vcs::create_repo(&pool, "demo", Some("demo repo")).await.unwrap();
+    let project = vcs::create_project(&pool, "demo", Some("demo project")).await.unwrap();
 
-    let branches = vcs::list_branches(&pool, &repo.id).await.unwrap();
+    let branches = vcs::list_branches(&pool, &project.id).await.unwrap();
     assert_eq!(branches.len(), 1);
     assert!(branches[0].is_default);
     assert_eq!(branches[0].name, "main");
 
-    let initial = vcs::list_commits(&pool, &repo.id).await.unwrap();
+    let initial = vcs::list_commits(&pool, &project.id).await.unwrap();
     assert_eq!(initial.len(), 1);
     assert_eq!(initial[0].message, "Initial commit");
 
-    vcs::upsert_artifact(&pool, &repo.id, KIND_CONCEPT, "Person", person("Person"))
+    vcs::upsert_artifact(&pool, &project.id, KIND_CONCEPT, "Person", person("Person"))
         .await
         .unwrap();
-    let c1 = vcs::create_commit(&pool, &repo.id, "add Person", "alice")
+    let c1 = vcs::create_commit(&pool, &project.id, "add Person", "alice")
         .await
         .unwrap();
 
     vcs::upsert_artifact(
         &pool,
-        &repo.id,
+        &project.id,
         KIND_CONCEPT,
         "Person",
         json!({ "name": "Person", "type": "EntityType", "description": "A natural person" }),
     )
     .await
     .unwrap();
-    let c2 = vcs::create_commit(&pool, &repo.id, "identify Person by nr", "alice")
+    let c2 = vcs::create_commit(&pool, &project.id, "identify Person by nr", "alice")
         .await
         .unwrap();
 
@@ -69,8 +69,8 @@ async fn repo_lifecycle_commits_diff_reset_branch_merge() {
     assert_eq!(changes[0].status, "modified");
     assert!(changes[0].unified.contains("description"));
 
-    vcs::reset_to_commit(&pool, &repo.id, &c1.id).await.unwrap();
-    let work = vcs::get_working_tree(&pool, &repo.id).await.unwrap();
+    vcs::reset_to_commit(&pool, &project.id, &c1.id).await.unwrap();
+    let work = vcs::get_working_tree(&pool, &project.id).await.unwrap();
     assert_eq!(
         work.get(&artifact_key(KIND_CONCEPT, "Person"))
             .unwrap()
@@ -79,37 +79,37 @@ async fn repo_lifecycle_commits_diff_reset_branch_merge() {
     );
 
     // Branch from current head (c1), add Employee, commit.
-    let feat = vcs::create_branch(&pool, &repo.id, "feature", &BranchFrom::Default)
+    let feat = vcs::create_branch(&pool, &project.id, "feature", &BranchFrom::Default)
         .await
         .unwrap();
-    vcs::checkout_branch(&pool, &repo.id, &feat.id).await.unwrap();
+    vcs::checkout_branch(&pool, &project.id, &feat.id).await.unwrap();
     vcs::upsert_artifact(
         &pool,
-        &repo.id,
+        &project.id,
         KIND_CONCEPT,
         "Employee",
         json!({ "name": "Employee", "type": "EntityType", "extends": ["Person"] }),
     )
     .await
     .unwrap();
-    vcs::create_commit(&pool, &repo.id, "add Employee", "bob").await.unwrap();
+    vcs::create_commit(&pool, &project.id, "add Employee", "bob").await.unwrap();
 
     // Merge feature back into main.
-    let main = vcs::list_branches(&pool, &repo.id)
+    let main = vcs::list_branches(&pool, &project.id)
         .await
         .unwrap()
         .into_iter()
         .find(|b| b.is_default)
         .unwrap();
-    vcs::checkout_branch(&pool, &repo.id, &main.id).await.unwrap();
-    let outcome = vcs::merge_branch(&pool, &repo.id, "feature", "", "alice")
+    vcs::checkout_branch(&pool, &project.id, &main.id).await.unwrap();
+    let outcome = vcs::merge_branch(&pool, &project.id, "feature", "", "alice")
         .await
         .unwrap();
     assert!(outcome.merged, "merge should succeed: {:?}", outcome.conflicts);
-    let work = vcs::get_working_tree(&pool, &repo.id).await.unwrap();
+    let work = vcs::get_working_tree(&pool, &project.id).await.unwrap();
     assert!(work.contains_key(&artifact_key(KIND_CONCEPT, "Employee")));
-    let head = vcs::working_branch(&pool, &repo.id).await.unwrap();
-    let head_commit = vcs::get_commit(&pool, &repo.id, &head.head_commit_id.unwrap())
+    let head = vcs::working_branch(&pool, &project.id).await.unwrap();
+    let head_commit = vcs::get_commit(&pool, &project.id, &head.head_commit_id.unwrap())
         .await
         .unwrap()
         .unwrap();
@@ -119,10 +119,10 @@ async fn repo_lifecycle_commits_diff_reset_branch_merge() {
 #[tokio::test]
 async fn invalid_artifact_is_rejected() {
     let pool = test_pool().await;
-    let repo = vcs::create_repo(&pool, "strict", None).await.unwrap();
+    let project = vcs::create_project(&pool, "strict", None).await.unwrap();
     let res = vcs::upsert_artifact(
         &pool,
-        &repo.id,
+        &project.id,
         KIND_CONCEPT,
         "Bad",
         json!({ "name": "Bad", "type": "Nope" }),
@@ -142,7 +142,7 @@ fn validation_has(issues: Vec<Issue>, needle: &str) -> bool {
 }
 
 #[tokio::test]
-async fn api_smoke_create_repo_artifact_commit_diff() {
+async fn api_smoke_create_project_artifact_commit_diff() {
     let pool = test_pool().await;
     let app = router(pool);
 
@@ -151,7 +151,7 @@ async fn api_smoke_create_repo_artifact_commit_diff() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/api/repos")
+                .uri("/api/projects")
                 .header("content-type", "application/json")
                 .body(Body::from(r#"{"name":"api-demo"}"#))
                 .unwrap(),
@@ -160,15 +160,15 @@ async fn api_smoke_create_repo_artifact_commit_diff() {
         .unwrap();
     assert_eq!(res.status(), StatusCode::CREATED);
     let body = res.into_body().collect().await.unwrap().to_bytes();
-    let repo: Value = serde_json::from_slice(&body).unwrap();
-    let repo_id = repo["id"].as_str().unwrap().to_string();
+    let project: Value = serde_json::from_slice(&body).unwrap();
+    let project_id = project["id"].as_str().unwrap().to_string();
 
     let res = app
         .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/api/repos/{repo_id}/artifacts"))
+                .uri(format!("/api/projects/{project_id}/artifacts"))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     r#"{"kind":"concept","key":"Person","body":{"name":"Person","type":"EntityType"}}"#,
@@ -184,7 +184,7 @@ async fn api_smoke_create_repo_artifact_commit_diff() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/api/repos/{repo_id}/commits"))
+                .uri(format!("/api/projects/{project_id}/commits"))
                 .header("content-type", "application/json")
                 .body(Body::from(r#"{"message":"person model","author":"tester"}"#))
                 .unwrap(),
@@ -198,7 +198,7 @@ async fn api_smoke_create_repo_artifact_commit_diff() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/api/repos/{repo_id}/diff?from=head&to=working"))
+                .uri(format!("/api/projects/{project_id}/diff?from=head&to=working"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -211,7 +211,7 @@ async fn api_smoke_create_repo_artifact_commit_diff() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/api/repos/{repo_id}/semantic/preview?schema=analytics"))
+                .uri(format!("/api/projects/{project_id}/semantic/preview?schema=analytics"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -226,7 +226,7 @@ async fn api_smoke_create_repo_artifact_commit_diff() {
 #[tokio::test]
 async fn import_export_round_trip_via_api() {
     let pool = test_pool().await;
-    let repo = vcs::create_repo(&pool, "roundtrip", None).await.unwrap();
+    let project = vcs::create_project(&pool, "roundtrip", None).await.unwrap();
     let app = router(pool);
 
     let yaml = r#"
@@ -265,7 +265,7 @@ semantic_model:
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(format!("/api/repos/{}/import", repo.id))
+                .uri(format!("/api/projects/{}/import", project.id))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({ "format": "yaml", "content": yaml }).to_string(),
@@ -284,7 +284,7 @@ semantic_model:
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/api/repos/{}/export?format=json", repo.id))
+                .uri(format!("/api/projects/{}/export?format=json", project.id))
                 .body(Body::empty())
                 .unwrap(),
         )

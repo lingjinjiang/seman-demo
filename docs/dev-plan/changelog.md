@@ -4,6 +4,49 @@
 
 ---
 
+## 2026-09-24 — 资源/权限模型设计 + repo 改名为「项目」+ 首次使用引导
+
+反馈「租户、仓库、项目、本体、语义模型、数据源之间的关系没梳理清楚，页面上又叫项目概况」。
+先出设计（`docs/design/access-control.md`），再据此调整代码。
+
+**设计文档**
+
+- 新增 `docs/design/access-control.md`：资源模型 + 权限模型。要点：
+  - 参考 **Apache Ossie**（`ROADMAP.md` 把 access control 划给平台/目录，规范本身不定义权限；
+    `docs/index.md` Phase 4 把 ownership 列为治理实践）、**Palantir**（资源层级 RBAC 与数据级强制控制
+    两条正交轴）、**阿里云 RAM + 工作空间**、以及 **K8s / GitLab / dbt Cloud / OpenMetadata**。
+  - 资源层级：**租户 → 项目**两级授权；本体与语义模型是**同一份文档的两个视图**，不是独立资源
+    （OSSIE 规定一份文档 = 一个语义模型 + 无跨模型引用，拆开会产生悬空态）。
+  - 权限：租户角色（TenantAdmin / Member / Guest）× 项目角色
+    （Viewer < Editor < **Publisher** < Owner）；**发布到 prod 单独设门禁**。
+  - 三条不变量：权限不进文档（推广自「环境令牌不进模型」）、发布是消费侧唯一边界、默认最小可见。
+  - 分期 S1 术语与边界 → S2 发布门禁 + API Key 只读 release → S3 完整 RBAC → S4 OIDC/行列级。
+- `roadmap.md` P5、`design-ouline.md` §0/§6 增加指向该文档的条目。
+
+**代码：repo → 项目（全链路改名）**
+
+- 后端：`repos` → `projects`、`repo_id` → `project_id`；`RepoRow` → `ProjectRow`；
+  `create_repo` / `list_repos` / `get_repo` / `delete_repo` → `*_project*`；
+  路由 `/api/repos/*` → `/api/projects/*`；工作区响应字段 `repo` → `project`；
+  发布记录字段 `repo_id` → `project_id`。
+- **旧库自动迁移**：`db.rs` 新增 `RENAME_MIGRATIONS`，在**建表之前**执行
+  （否则新建的空 `projects` 表会遮蔽旧 `repos` 表），逐条容错。
+  已用真实旧库副本验证：`repos → projects`、四张表 `repo_id → project_id`，数据无损。
+  ⚠️ 过程中发现批量改名把迁移语句自身也改了（`projects RENAME TO projects`），已修复。
+- 前端：`Repo` → `Project` 类型、`api.listProjects` 等、`projectId`/`projects` 变量与文案，
+  「模型仓库」→「项目」。
+
+**前端：按「全新用户首次进入」重做交互**
+
+- 「项目概览」→ **「工作台」**，磁贴导航（上一轮已做），本轮补 **首次使用引导**：
+  四步清单（配置数据源 → 创建项目 → 在项目里建模 → 提交并发布），带完成状态、
+  可一键跳转，全部完成后自动隐藏；步骤顺序即依赖链顺序。
+- 侧边栏「建模」分组在无项目时显示「先创建一个项目」提示，解释为什么点本体/语义模型没反应。
+- 保持既有浅色视觉与组件风格不变。
+
+**验证**：`cargo test`（22 单测 + 4 集成）、`cargo check --all-targets`、`npm run build` 全绿；
+旧库迁移做了端到端验证。
+
 ## 2026-09-23 — 智能问数 Agent 的 Harness 选型文档
 
 为 P3（LLM 问数）做选型分析，新增 `docs/design/agent-harness-selection.md`：

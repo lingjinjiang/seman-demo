@@ -39,31 +39,31 @@ fn db(err: sqlx::Error) -> ModelError {
 }
 
 // ---------------------------------------------------------------------------
-// Repositories
+// Projects
 // ---------------------------------------------------------------------------
 
-pub async fn create_repo(
+pub async fn create_project(
     pool: &AnyPool,
     name: &str,
     description: Option<&str>,
-) -> ModelResult<RepoRow> {
-    create_repo_scoped(pool, crate::platform::DEFAULT_TENANT, name, description).await
+) -> ModelResult<ProjectRow> {
+    create_project_scoped(pool, crate::platform::DEFAULT_TENANT, name, description).await
 }
 
-/// Creates a repository inside a tenant. Repository names are unique per
+/// Creates a project inside a tenant. Project names are unique per
 /// tenant, so two tenants can both own a `retail` model.
-pub async fn create_repo_scoped(
+pub async fn create_project_scoped(
     pool: &AnyPool,
     tenant_id: &str,
     name: &str,
     description: Option<&str>,
-) -> ModelResult<RepoRow> {
+) -> ModelResult<ProjectRow> {
     let name = name.trim();
     if name.is_empty() {
-        return Err(ModelError::Bad("repository name must not be empty".into()));
+        return Err(ModelError::Bad("project name must not be empty".into()));
     }
     let duplicate: Option<(String,)> =
-        sqlx::query_as("SELECT id FROM repos WHERE tenant_id = ? AND name = ?")
+        sqlx::query_as("SELECT id FROM projects WHERE tenant_id = ? AND name = ?")
             .bind(tenant_id)
             .bind(name)
             .fetch_optional(pool)
@@ -71,10 +71,10 @@ pub async fn create_repo_scoped(
             .map_err(db)?;
     if duplicate.is_some() {
         return Err(ModelError::Bad(format!(
-            "repository `{name}` already exists in this tenant"
+            "project `{name}` already exists in this tenant"
         )));
     }
-    let repo_id = new_id();
+    let project_id = new_id();
     let branch_id = new_id();
     let commit_id = new_id();
     let now = now_millis();
@@ -82,9 +82,9 @@ pub async fn create_repo_scoped(
 
     let mut tx = pool.begin().await.map_err(db)?;
     sqlx::query(
-        "INSERT INTO repos (id, tenant_id, name, description, head_branch_id, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, ?, ?)",
+        "INSERT INTO projects (id, tenant_id, name, description, head_branch_id, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, ?, ?)",
     )
-    .bind(&repo_id)
+    .bind(&project_id)
     .bind(tenant_id)
     .bind(name)
     .bind(description)
@@ -95,10 +95,10 @@ pub async fn create_repo_scoped(
     .map_err(db)?;
 
     sqlx::query(
-        "INSERT INTO branches (id, repo_id, name, head_commit_id, is_default, created_at, updated_at) VALUES (?, ?, 'main', NULL, 1, ?, ?)",
+        "INSERT INTO branches (id, project_id, name, head_commit_id, is_default, created_at, updated_at) VALUES (?, ?, 'main', NULL, 1, ?, ?)",
     )
     .bind(&branch_id)
-    .bind(&repo_id)
+    .bind(&project_id)
     .bind(now)
     .bind(now)
     .execute(&mut *tx)
@@ -106,10 +106,10 @@ pub async fn create_repo_scoped(
     .map_err(db)?;
 
     sqlx::query(
-        "INSERT INTO commits (id, repo_id, branch_id, message, author, parent_commit_id, parent2_commit_id, tree_json, created_at) VALUES (?, ?, ?, 'Initial commit', 'system', NULL, NULL, ?, ?)",
+        "INSERT INTO commits (id, project_id, branch_id, message, author, parent_commit_id, parent2_commit_id, tree_json, created_at) VALUES (?, ?, ?, 'Initial commit', 'system', NULL, NULL, ?, ?)",
     )
     .bind(&commit_id)
-    .bind(&repo_id)
+    .bind(&project_id)
     .bind(&branch_id)
     .bind(&empty_tree)
     .bind(now)
@@ -124,17 +124,17 @@ pub async fn create_repo_scoped(
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-    sqlx::query("UPDATE repos SET head_branch_id = ?, updated_at = ? WHERE id = ?")
+    sqlx::query("UPDATE projects SET head_branch_id = ?, updated_at = ? WHERE id = ?")
         .bind(&branch_id)
         .bind(now)
-        .bind(&repo_id)
+        .bind(&project_id)
         .execute(&mut *tx)
         .await
         .map_err(db)?;
     sqlx::query(
-        "INSERT INTO working_trees (repo_id, branch_id, base_commit_id, tree_json, updated_at) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO working_trees (project_id, branch_id, base_commit_id, tree_json, updated_at) VALUES (?, ?, ?, ?, ?)",
     )
-    .bind(&repo_id)
+    .bind(&project_id)
     .bind(&branch_id)
     .bind(&commit_id)
     .bind(&empty_tree)
@@ -144,28 +144,28 @@ pub async fn create_repo_scoped(
     .map_err(db)?;
     tx.commit().await.map_err(db)?;
 
-    get_repo(pool, &repo_id).await
+    get_project(pool, &project_id).await
 }
 
-pub async fn get_repo(pool: &AnyPool, repo_id: &str) -> ModelResult<RepoRow> {
-    sqlx::query_as::<_, RepoRow>("SELECT * FROM repos WHERE id = ?")
-        .bind(repo_id)
+pub async fn get_project(pool: &AnyPool, project_id: &str) -> ModelResult<ProjectRow> {
+    sqlx::query_as::<_, ProjectRow>("SELECT * FROM projects WHERE id = ?")
+        .bind(project_id)
         .fetch_optional(pool)
         .await
         .map_err(db)?
-        .ok_or_else(|| ModelError::NotFound(format!("repository {repo_id} not found")))
+        .ok_or_else(|| ModelError::NotFound(format!("project {project_id} not found")))
 }
 
-pub async fn list_repos(pool: &AnyPool) -> ModelResult<Vec<RepoRow>> {
-    Ok(sqlx::query_as::<_, RepoRow>("SELECT * FROM repos ORDER BY updated_at DESC")
+pub async fn list_projects(pool: &AnyPool) -> ModelResult<Vec<ProjectRow>> {
+    Ok(sqlx::query_as::<_, ProjectRow>("SELECT * FROM projects ORDER BY updated_at DESC")
         .fetch_all(pool)
         .await
         .map_err(db)?)
 }
 
-pub async fn list_repos_scoped(pool: &AnyPool, tenant_id: &str) -> ModelResult<Vec<RepoRow>> {
-    Ok(sqlx::query_as::<_, RepoRow>(
-        "SELECT * FROM repos WHERE tenant_id = ? ORDER BY updated_at DESC",
+pub async fn list_projects_scoped(pool: &AnyPool, tenant_id: &str) -> ModelResult<Vec<ProjectRow>> {
+    Ok(sqlx::query_as::<_, ProjectRow>(
+        "SELECT * FROM projects WHERE tenant_id = ? ORDER BY updated_at DESC",
     )
     .bind(tenant_id)
     .fetch_all(pool)
@@ -173,31 +173,31 @@ pub async fn list_repos_scoped(pool: &AnyPool, tenant_id: &str) -> ModelResult<V
     .map_err(db)?)
 }
 
-pub async fn delete_repo(pool: &AnyPool, repo_id: &str) -> ModelResult<()> {
+pub async fn delete_project(pool: &AnyPool, project_id: &str) -> ModelResult<()> {
     let mut tx = pool.begin().await.map_err(db)?;
-    sqlx::query("DELETE FROM working_trees WHERE repo_id = ?")
-        .bind(repo_id)
+    sqlx::query("DELETE FROM working_trees WHERE project_id = ?")
+        .bind(project_id)
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-    sqlx::query("DELETE FROM commits WHERE repo_id = ?")
-        .bind(repo_id)
+    sqlx::query("DELETE FROM commits WHERE project_id = ?")
+        .bind(project_id)
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-    sqlx::query("DELETE FROM branches WHERE repo_id = ?")
-        .bind(repo_id)
+    sqlx::query("DELETE FROM branches WHERE project_id = ?")
+        .bind(project_id)
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-    let res = sqlx::query("DELETE FROM repos WHERE id = ?")
-        .bind(repo_id)
+    let res = sqlx::query("DELETE FROM projects WHERE id = ?")
+        .bind(project_id)
         .execute(&mut *tx)
         .await
         .map_err(db)?;
     tx.commit().await.map_err(db)?;
     if res.rows_affected() == 0 {
-        return Err(ModelError::NotFound(format!("repository {repo_id} not found")));
+        return Err(ModelError::NotFound(format!("project {project_id} not found")));
     }
     Ok(())
 }
@@ -213,9 +213,9 @@ pub enum BranchFrom {
     Commit(String),
 }
 
-pub async fn list_branches(pool: &AnyPool, repo_id: &str) -> ModelResult<Vec<BranchRow>> {
-    Ok(sqlx::query_as::<_, BranchRow>("SELECT * FROM branches WHERE repo_id = ? ORDER BY is_default DESC, name")
-        .bind(repo_id)
+pub async fn list_branches(pool: &AnyPool, project_id: &str) -> ModelResult<Vec<BranchRow>> {
+    Ok(sqlx::query_as::<_, BranchRow>("SELECT * FROM branches WHERE project_id = ? ORDER BY is_default DESC, name")
+        .bind(project_id)
         .fetch_all(pool)
         .await
         .map_err(db)?)
@@ -223,32 +223,32 @@ pub async fn list_branches(pool: &AnyPool, repo_id: &str) -> ModelResult<Vec<Bra
 
 pub async fn get_branch(
     pool: &AnyPool,
-    repo_id: &str,
+    project_id: &str,
     branch_id: &str,
 ) -> ModelResult<BranchRow> {
-    sqlx::query_as::<_, BranchRow>("SELECT * FROM branches WHERE id = ? AND repo_id = ?")
+    sqlx::query_as::<_, BranchRow>("SELECT * FROM branches WHERE id = ? AND project_id = ?")
         .bind(branch_id)
-        .bind(repo_id)
+        .bind(project_id)
         .fetch_optional(pool)
         .await
         .map_err(db)?
         .ok_or_else(|| ModelError::NotFound(format!("branch {branch_id} not found")))
 }
 
-pub async fn find_branch(pool: &AnyPool, repo_id: &str, ident: &str) -> ModelResult<BranchRow> {
+pub async fn find_branch(pool: &AnyPool, project_id: &str, ident: &str) -> ModelResult<BranchRow> {
     if let Some(row) = sqlx::query_as::<_, BranchRow>(
-        "SELECT * FROM branches WHERE id = ? AND repo_id = ?",
+        "SELECT * FROM branches WHERE id = ? AND project_id = ?",
     )
     .bind(ident)
-    .bind(repo_id)
+    .bind(project_id)
     .fetch_optional(pool)
     .await
     .map_err(db)?
     {
         return Ok(row);
     }
-    sqlx::query_as::<_, BranchRow>("SELECT * FROM branches WHERE repo_id = ? AND name = ?")
-        .bind(repo_id)
+    sqlx::query_as::<_, BranchRow>("SELECT * FROM branches WHERE project_id = ? AND name = ?")
+        .bind(project_id)
         .bind(ident)
         .fetch_optional(pool)
         .await
@@ -267,7 +267,7 @@ fn valid_branch_name(name: &str) -> bool {
 
 pub async fn create_branch(
     pool: &AnyPool,
-    repo_id: &str,
+    project_id: &str,
     name: &str,
     from: &BranchFrom,
 ) -> ModelResult<BranchRow> {
@@ -279,15 +279,15 @@ pub async fn create_branch(
     let now = now_millis();
     let head_commit: Option<String> = match from {
         BranchFrom::Default => {
-            let repo = get_repo(pool, repo_id).await?;
-            match repo.head_branch_id {
-                Some(bid) => get_branch(pool, repo_id, &bid).await?.head_commit_id,
+            let project = get_project(pool, project_id).await?;
+            match project.head_branch_id {
+                Some(bid) => get_branch(pool, project_id, &bid).await?.head_commit_id,
                 None => None,
             }
         }
-        BranchFrom::Branch(b) => find_branch(pool, repo_id, b).await?.head_commit_id,
+        BranchFrom::Branch(b) => find_branch(pool, project_id, b).await?.head_commit_id,
         BranchFrom::Commit(c) => {
-            let commit = get_commit(pool, repo_id, c).await?;
+            let commit = get_commit(pool, project_id, c).await?;
             commit.map(|c| c.id)
         }
     };
@@ -298,10 +298,10 @@ pub async fn create_branch(
     let tree = serde_json::to_string(&snapshot)?;
     let branch_id = new_id();
     sqlx::query(
-        "INSERT INTO branches (id, repo_id, name, head_commit_id, is_default, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?)",
+        "INSERT INTO branches (id, project_id, name, head_commit_id, is_default, created_at, updated_at) VALUES (?, ?, ?, ?, 0, ?, ?)",
     )
     .bind(&branch_id)
-    .bind(repo_id)
+    .bind(project_id)
     .bind(name.trim())
     .bind(&head_commit)
     .bind(now)
@@ -315,9 +315,9 @@ pub async fn create_branch(
         other => ModelError::Db(other),
     })?;
     sqlx::query(
-        "INSERT INTO working_trees (repo_id, branch_id, base_commit_id, tree_json, updated_at) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO working_trees (project_id, branch_id, base_commit_id, tree_json, updated_at) VALUES (?, ?, ?, ?, ?)",
     )
-    .bind(repo_id)
+    .bind(project_id)
     .bind(&branch_id)
     .bind(&head_commit)
     .bind(&tree)
@@ -325,38 +325,38 @@ pub async fn create_branch(
     .execute(pool)
     .await
     .map_err(db)?;
-    get_branch(pool, repo_id, &branch_id).await
+    get_branch(pool, project_id, &branch_id).await
 }
 
-pub async fn checkout_branch(pool: &AnyPool, repo_id: &str, branch_id: &str) -> ModelResult<RepoRow> {
-    let branch = get_branch(pool, repo_id, branch_id).await?;
-    ensure_working_tree(pool, repo_id, &branch).await?;
-    sqlx::query("UPDATE repos SET head_branch_id = ?, updated_at = ? WHERE id = ?")
+pub async fn checkout_branch(pool: &AnyPool, project_id: &str, branch_id: &str) -> ModelResult<ProjectRow> {
+    let branch = get_branch(pool, project_id, branch_id).await?;
+    ensure_working_tree(pool, project_id, &branch).await?;
+    sqlx::query("UPDATE projects SET head_branch_id = ?, updated_at = ? WHERE id = ?")
         .bind(&branch.id)
         .bind(now_millis())
-        .bind(repo_id)
+        .bind(project_id)
         .execute(pool)
         .await
         .map_err(db)?;
-    get_repo(pool, repo_id).await
+    get_project(pool, project_id).await
 }
 
-pub async fn delete_branch(pool: &AnyPool, repo_id: &str, branch_id: &str) -> ModelResult<()> {
-    let branch = get_branch(pool, repo_id, branch_id).await?;
+pub async fn delete_branch(pool: &AnyPool, project_id: &str, branch_id: &str) -> ModelResult<()> {
+    let branch = get_branch(pool, project_id, branch_id).await?;
     if branch.is_default {
         return Err(ModelError::Bad(
             "cannot delete the default branch".into(),
         ));
     }
-    let repo = get_repo(pool, repo_id).await?;
-    if repo.head_branch_id.as_deref() == Some(branch.id.as_str()) {
+    let project = get_project(pool, project_id).await?;
+    if project.head_branch_id.as_deref() == Some(branch.id.as_str()) {
         return Err(ModelError::Bad(
             "cannot delete the currently checked out branch".into(),
         ));
     }
     let mut tx = pool.begin().await.map_err(db)?;
-    sqlx::query("DELETE FROM working_trees WHERE repo_id = ? AND branch_id = ?")
-        .bind(repo_id)
+    sqlx::query("DELETE FROM working_trees WHERE project_id = ? AND branch_id = ?")
+        .bind(project_id)
         .bind(&branch.id)
         .execute(&mut *tx)
         .await
@@ -374,19 +374,19 @@ pub async fn delete_branch(pool: &AnyPool, repo_id: &str, branch_id: &str) -> Mo
 // Working tree
 // ---------------------------------------------------------------------------
 
-pub async fn working_branch(pool: &AnyPool, repo_id: &str) -> ModelResult<BranchRow> {
-    let repo = get_repo(pool, repo_id).await?;
-    let Some(bid) = repo.head_branch_id else {
-        return Err(ModelError::Bad("repository has no checked out branch".into()));
+pub async fn working_branch(pool: &AnyPool, project_id: &str) -> ModelResult<BranchRow> {
+    let project = get_project(pool, project_id).await?;
+    let Some(bid) = project.head_branch_id else {
+        return Err(ModelError::Bad("project has no checked out branch".into()));
     };
-    get_branch(pool, repo_id, &bid).await
+    get_branch(pool, project_id, &bid).await
 }
 
-async fn get_working_row(pool: &AnyPool, repo_id: &str, branch_id: &str) -> ModelResult<Option<(String, Option<String>)>> {
+async fn get_working_row(pool: &AnyPool, project_id: &str, branch_id: &str) -> ModelResult<Option<(String, Option<String>)>> {
     Ok(sqlx::query_as::<_, (String, Option<String>)>(
-        "SELECT tree_json, base_commit_id FROM working_trees WHERE repo_id = ? AND branch_id = ?",
+        "SELECT tree_json, base_commit_id FROM working_trees WHERE project_id = ? AND branch_id = ?",
     )
-    .bind(repo_id)
+    .bind(project_id)
     .bind(branch_id)
     .fetch_optional(pool)
     .await
@@ -395,52 +395,52 @@ async fn get_working_row(pool: &AnyPool, repo_id: &str, branch_id: &str) -> Mode
 
 pub async fn ensure_working_tree(
     pool: &AnyPool,
-    repo_id: &str,
+    project_id: &str,
     branch: &BranchRow,
 ) -> ModelResult<Snapshot> {
-    if let Some((tree_json, _)) = get_working_row(pool, repo_id, &branch.id).await? {
+    if let Some((tree_json, _)) = get_working_row(pool, project_id, &branch.id).await? {
         return Ok(serde_json::from_str(&tree_json)?);
     }
     let snapshot = match &branch.head_commit_id {
         Some(cid) => commit_snapshot(pool, cid).await?,
         None => empty_snapshot(),
     };
-    save_working_tree(pool, repo_id, &branch.id, &snapshot).await?;
+    save_working_tree(pool, project_id, &branch.id, &snapshot).await?;
     Ok(snapshot)
 }
 
-pub async fn get_working_tree(pool: &AnyPool, repo_id: &str) -> ModelResult<Snapshot> {
-    let branch = working_branch(pool, repo_id).await?;
-    ensure_working_tree(pool, repo_id, &branch).await
+pub async fn get_working_tree(pool: &AnyPool, project_id: &str) -> ModelResult<Snapshot> {
+    let branch = working_branch(pool, project_id).await?;
+    ensure_working_tree(pool, project_id, &branch).await
 }
 
 pub async fn save_working_tree(
     pool: &AnyPool,
-    repo_id: &str,
+    project_id: &str,
     branch_id: &str,
     snapshot: &Snapshot,
 ) -> ModelResult<()> {
     let now = now_millis();
     let tree = serde_json::to_string(snapshot)?;
-    let base = get_working_row(pool, repo_id, branch_id)
+    let base = get_working_row(pool, project_id, branch_id)
         .await?
         .and_then(|(_, b)| b);
     let res = sqlx::query(
-        "UPDATE working_trees SET tree_json = ?, base_commit_id = ?, updated_at = ? WHERE repo_id = ? AND branch_id = ?",
+        "UPDATE working_trees SET tree_json = ?, base_commit_id = ?, updated_at = ? WHERE project_id = ? AND branch_id = ?",
     )
     .bind(&tree)
     .bind(&base)
     .bind(now)
-    .bind(repo_id)
+    .bind(project_id)
     .bind(branch_id)
     .execute(pool)
     .await
     .map_err(db)?;
     if res.rows_affected() == 0 {
         sqlx::query(
-            "INSERT INTO working_trees (repo_id, branch_id, base_commit_id, tree_json, updated_at) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO working_trees (project_id, branch_id, base_commit_id, tree_json, updated_at) VALUES (?, ?, ?, ?, ?)",
         )
-        .bind(repo_id)
+        .bind(project_id)
         .bind(branch_id)
         .bind(&base)
         .bind(&tree)
@@ -458,10 +458,10 @@ pub async fn save_working_tree(
 
 pub async fn list_artifacts(
     pool: &AnyPool,
-    repo_id: &str,
+    project_id: &str,
     kind: Option<&str>,
 ) -> ModelResult<Vec<(String, Value)>> {
-    let snapshot = get_working_tree(pool, repo_id).await?;
+    let snapshot = get_working_tree(pool, project_id).await?;
     Ok(snapshot
         .into_iter()
         .filter(|(key, _)| match kind {
@@ -473,17 +473,17 @@ pub async fn list_artifacts(
 
 pub async fn get_artifact(
     pool: &AnyPool,
-    repo_id: &str,
+    project_id: &str,
     kind: &str,
     key: &str,
 ) -> ModelResult<Option<Value>> {
-    let snapshot = get_working_tree(pool, repo_id).await?;
+    let snapshot = get_working_tree(pool, project_id).await?;
     Ok(snapshot.get(&artifact_key(kind, key)).cloned())
 }
 
 pub async fn upsert_artifact(
     pool: &AnyPool,
-    repo_id: &str,
+    project_id: &str,
     kind: &str,
     key: &str,
     body: Value,
@@ -497,27 +497,27 @@ pub async fn upsert_artifact(
     if key.trim().is_empty() {
         return Err(ModelError::Bad("artifact key must not be empty".into()));
     }
-    let mut snapshot = get_working_tree(pool, repo_id).await?;
+    let mut snapshot = get_working_tree(pool, project_id).await?;
     snapshot.insert(artifact_key(kind, key), body.clone());
     let issues = validation::validate_snapshot(&snapshot);
     if validation::has_errors(&issues) {
         return Err(ModelError::Validation { issues });
     }
-    let branch = working_branch(pool, repo_id).await?;
-    save_working_tree(pool, repo_id, &branch.id, &snapshot).await?;
+    let branch = working_branch(pool, project_id).await?;
+    save_working_tree(pool, project_id, &branch.id, &snapshot).await?;
     Ok(body)
 }
 
 pub async fn delete_artifact(
     pool: &AnyPool,
-    repo_id: &str,
+    project_id: &str,
     kind: &str,
     key: &str,
 ) -> ModelResult<Option<Value>> {
-    let mut snapshot = get_working_tree(pool, repo_id).await?;
+    let mut snapshot = get_working_tree(pool, project_id).await?;
     let removed = snapshot.remove(&artifact_key(kind, key));
-    let branch = working_branch(pool, repo_id).await?;
-    save_working_tree(pool, repo_id, &branch.id, &snapshot).await?;
+    let branch = working_branch(pool, project_id).await?;
+    save_working_tree(pool, project_id, &branch.id, &snapshot).await?;
     Ok(removed)
 }
 
@@ -527,7 +527,7 @@ pub async fn delete_artifact(
 
 pub async fn create_commit(
     pool: &AnyPool,
-    repo_id: &str,
+    project_id: &str,
     message: &str,
     author: &str,
 ) -> ModelResult<CommitRow> {
@@ -535,8 +535,8 @@ pub async fn create_commit(
     if message.is_empty() {
         return Err(ModelError::Bad("commit message must not be empty".into()));
     }
-    let branch = working_branch(pool, repo_id).await?;
-    let snapshot = get_working_tree(pool, repo_id).await?;
+    let branch = working_branch(pool, project_id).await?;
+    let snapshot = get_working_tree(pool, project_id).await?;
     let issues = validation::validate_snapshot(&snapshot);
     if validation::has_errors(&issues) {
         return Err(ModelError::Validation { issues });
@@ -546,10 +546,10 @@ pub async fn create_commit(
     let tree = serde_json::to_string(&snapshot)?;
     let mut tx = pool.begin().await.map_err(db)?;
     sqlx::query(
-        "INSERT INTO commits (id, repo_id, branch_id, message, author, parent_commit_id, parent2_commit_id, tree_json, created_at) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)",
+        "INSERT INTO commits (id, project_id, branch_id, message, author, parent_commit_id, parent2_commit_id, tree_json, created_at) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)",
     )
     .bind(&commit_id)
-    .bind(repo_id)
+    .bind(project_id)
     .bind(&branch.id)
     .bind(message)
     .bind(author)
@@ -567,36 +567,36 @@ pub async fn create_commit(
         .await
         .map_err(db)?;
     sqlx::query(
-        "UPDATE working_trees SET base_commit_id = ?, updated_at = ? WHERE repo_id = ? AND branch_id = ?",
+        "UPDATE working_trees SET base_commit_id = ?, updated_at = ? WHERE project_id = ? AND branch_id = ?",
     )
     .bind(&commit_id)
     .bind(now)
-    .bind(repo_id)
+    .bind(project_id)
     .bind(&branch.id)
     .execute(&mut *tx)
     .await
     .map_err(db)?;
-    sqlx::query("UPDATE repos SET updated_at = ? WHERE id = ?")
+    sqlx::query("UPDATE projects SET updated_at = ? WHERE id = ?")
         .bind(now)
-        .bind(repo_id)
+        .bind(project_id)
         .execute(&mut *tx)
         .await
         .map_err(db)?;
     tx.commit().await.map_err(db)?;
-    get_commit(pool, repo_id, &commit_id)
+    get_commit(pool, project_id, &commit_id)
         .await?
         .ok_or_else(|| ModelError::Bad("commit vanished after insert".into()))
 }
 
-pub async fn list_commits(pool: &AnyPool, repo_id: &str) -> ModelResult<Vec<CommitDto>> {
+pub async fn list_commits(pool: &AnyPool, project_id: &str) -> ModelResult<Vec<CommitDto>> {
     let rows = sqlx::query_as::<_, CommitRow>(
-        "SELECT * FROM commits WHERE repo_id = ? ORDER BY created_at DESC",
+        "SELECT * FROM commits WHERE project_id = ? ORDER BY created_at DESC",
     )
-    .bind(repo_id)
+    .bind(project_id)
     .fetch_all(pool)
     .await
     .map_err(db)?;
-    let branches = list_branches(pool, repo_id).await?;
+    let branches = list_branches(pool, project_id).await?;
     let mut by_head: std::collections::HashMap<String, Vec<String>> = Default::default();
     for b in branches {
         if let Some(h) = b.head_commit_id {
@@ -616,14 +616,14 @@ pub async fn list_commits(pool: &AnyPool, repo_id: &str) -> ModelResult<Vec<Comm
 
 pub async fn get_commit(
     pool: &AnyPool,
-    repo_id: &str,
+    project_id: &str,
     commit_id: &str,
 ) -> ModelResult<Option<CommitRow>> {
     Ok(sqlx::query_as::<_, CommitRow>(
-        "SELECT * FROM commits WHERE id = ? AND repo_id = ?",
+        "SELECT * FROM commits WHERE id = ? AND project_id = ?",
     )
     .bind(commit_id)
-    .bind(repo_id)
+    .bind(project_id)
     .fetch_optional(pool)
     .await
     .map_err(db)?)
@@ -646,13 +646,13 @@ pub async fn commit_snapshot(pool: &AnyPool, commit_id: &str) -> ModelResult<Sna
 
 pub async fn reset_to_commit(
     pool: &AnyPool,
-    repo_id: &str,
+    project_id: &str,
     commit_id: &str,
 ) -> ModelResult<CommitRow> {
-    let commit = get_commit(pool, repo_id, commit_id)
+    let commit = get_commit(pool, project_id, commit_id)
         .await?
         .ok_or_else(|| ModelError::NotFound(format!("commit {commit_id} not found")))?;
-    let branch = working_branch(pool, repo_id).await?;
+    let branch = working_branch(pool, project_id).await?;
     let snapshot = commit_snapshot(pool, &commit.id).await?;
     let now = now_millis();
     let mut tx = pool.begin().await.map_err(db)?;
@@ -665,19 +665,19 @@ pub async fn reset_to_commit(
         .map_err(db)?;
     let tree = serde_json::to_string(&snapshot)?;
     sqlx::query(
-        "UPDATE working_trees SET tree_json = ?, base_commit_id = ?, updated_at = ? WHERE repo_id = ? AND branch_id = ?",
+        "UPDATE working_trees SET tree_json = ?, base_commit_id = ?, updated_at = ? WHERE project_id = ? AND branch_id = ?",
     )
     .bind(&tree)
     .bind(&commit.id)
     .bind(now)
-    .bind(repo_id)
+    .bind(project_id)
     .bind(&branch.id)
     .execute(&mut *tx)
     .await
     .map_err(db)?;
-    sqlx::query("UPDATE repos SET updated_at = ? WHERE id = ?")
+    sqlx::query("UPDATE projects SET updated_at = ? WHERE id = ?")
         .bind(now)
-        .bind(repo_id)
+        .bind(project_id)
         .execute(&mut *tx)
         .await
         .map_err(db)?;
@@ -697,7 +697,7 @@ pub enum RefSpec {
     Commit(String),
 }
 
-pub async fn resolve_ref(pool: &AnyPool, repo_id: &str, spec: &str) -> ModelResult<RefSpec> {
+pub async fn resolve_ref(pool: &AnyPool, project_id: &str, spec: &str) -> ModelResult<RefSpec> {
     match spec {
         "working" | "WORKING" => Ok(RefSpec::Working),
         "head" | "HEAD" => Ok(RefSpec::Head),
@@ -707,7 +707,7 @@ pub async fn resolve_ref(pool: &AnyPool, repo_id: &str, spec: &str) -> ModelResu
                 .or_else(|| other.strip_prefix("head~"))
             {
                 if let Ok(n) = rest.parse::<usize>() {
-                    let branch = working_branch(pool, repo_id).await?;
+                    let branch = working_branch(pool, project_id).await?;
                     let mut id = branch
                         .head_commit_id
                         .ok_or_else(|| ModelError::Bad("HEAD has no commits".into()))?;
@@ -723,10 +723,10 @@ pub async fn resolve_ref(pool: &AnyPool, repo_id: &str, spec: &str) -> ModelResu
                     return Ok(RefSpec::Commit(id));
                 }
             }
-            if find_branch(pool, repo_id, other).await.is_ok() {
+            if find_branch(pool, project_id, other).await.is_ok() {
                 return Ok(RefSpec::Branch(other.to_string()));
             }
-            if get_commit(pool, repo_id, other).await?.is_some() {
+            if get_commit(pool, project_id, other).await?.is_some() {
                 return Ok(RefSpec::Commit(other.to_string()));
             }
             Err(ModelError::Bad(format!(
@@ -738,20 +738,20 @@ pub async fn resolve_ref(pool: &AnyPool, repo_id: &str, spec: &str) -> ModelResu
 
 pub async fn snapshot_for_ref(
     pool: &AnyPool,
-    repo_id: &str,
+    project_id: &str,
     spec: &RefSpec,
 ) -> ModelResult<Snapshot> {
     match spec {
-        RefSpec::Working => get_working_tree(pool, repo_id).await,
+        RefSpec::Working => get_working_tree(pool, project_id).await,
         RefSpec::Head => {
-            let branch = working_branch(pool, repo_id).await?;
+            let branch = working_branch(pool, project_id).await?;
             match branch.head_commit_id {
                 Some(cid) => commit_snapshot(pool, &cid).await,
                 None => Ok(empty_snapshot()),
             }
         }
         RefSpec::Branch(name) => {
-            let branch = find_branch(pool, repo_id, name).await?;
+            let branch = find_branch(pool, project_id, name).await?;
             match branch.head_commit_id {
                 Some(cid) => commit_snapshot(pool, &cid).await,
                 None => Ok(empty_snapshot()),
@@ -837,13 +837,13 @@ pub struct MergeOutcome {
 
 pub async fn merge_branch(
     pool: &AnyPool,
-    repo_id: &str,
+    project_id: &str,
     from_ident: &str,
     message: &str,
     author: &str,
 ) -> ModelResult<MergeOutcome> {
-    let current = working_branch(pool, repo_id).await?;
-    let incoming = find_branch(pool, repo_id, from_ident).await?;
+    let current = working_branch(pool, project_id).await?;
+    let incoming = find_branch(pool, project_id, from_ident).await?;
     if incoming.id == current.id {
         return Err(ModelError::Bad("cannot merge a branch into itself".into()));
     }
@@ -854,7 +854,7 @@ pub async fn merge_branch(
         return Err(ModelError::Bad("source branch has no commits".into()));
     };
 
-    let work = get_working_tree(pool, repo_id).await?;
+    let work = get_working_tree(pool, project_id).await?;
     let head_snap = commit_snapshot(pool, &ours).await?;
     if work != head_snap {
         return Err(ModelError::Bad(
@@ -886,10 +886,10 @@ pub async fn merge_branch(
     let tree = serde_json::to_string(&merged)?;
     let mut tx = pool.begin().await.map_err(db)?;
     sqlx::query(
-        "INSERT INTO commits (id, repo_id, branch_id, message, author, parent_commit_id, parent2_commit_id, tree_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO commits (id, project_id, branch_id, message, author, parent_commit_id, parent2_commit_id, tree_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&commit_id)
-    .bind(repo_id)
+    .bind(project_id)
     .bind(&current.id)
     .bind(&message)
     .bind(author)
@@ -908,19 +908,19 @@ pub async fn merge_branch(
         .await
         .map_err(db)?;
     sqlx::query(
-        "UPDATE working_trees SET tree_json = ?, base_commit_id = ?, updated_at = ? WHERE repo_id = ? AND branch_id = ?",
+        "UPDATE working_trees SET tree_json = ?, base_commit_id = ?, updated_at = ? WHERE project_id = ? AND branch_id = ?",
     )
     .bind(&tree)
     .bind(&commit_id)
     .bind(now)
-    .bind(repo_id)
+    .bind(project_id)
     .bind(&current.id)
     .execute(&mut *tx)
     .await
     .map_err(db)?;
-    sqlx::query("UPDATE repos SET updated_at = ? WHERE id = ?")
+    sqlx::query("UPDATE projects SET updated_at = ? WHERE id = ?")
         .bind(now)
-        .bind(repo_id)
+        .bind(project_id)
         .execute(&mut *tx)
         .await
         .map_err(db)?;

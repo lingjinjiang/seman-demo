@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS tenants (
     updated_at  BIGINT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS repos (
+CREATE TABLE IF NOT EXISTS projects (
     id             TEXT PRIMARY KEY,
     tenant_id      TEXT NOT NULL DEFAULT 'default',
     name           TEXT NOT NULL,
@@ -26,18 +26,18 @@ CREATE TABLE IF NOT EXISTS repos (
 
 CREATE TABLE IF NOT EXISTS branches (
     id              TEXT PRIMARY KEY,
-    repo_id         TEXT NOT NULL,
+    project_id      TEXT NOT NULL,
     name            TEXT NOT NULL,
     head_commit_id  TEXT,
     is_default      INTEGER NOT NULL DEFAULT 0,
     created_at      INTEGER NOT NULL,
     updated_at      INTEGER NOT NULL,
-    UNIQUE (repo_id, name)
+    UNIQUE (project_id, name)
 );
 
 CREATE TABLE IF NOT EXISTS commits (
     id               TEXT PRIMARY KEY,
-    repo_id          TEXT NOT NULL,
+    project_id       TEXT NOT NULL,
     branch_id        TEXT,
     message          TEXT NOT NULL,
     author           TEXT NOT NULL,
@@ -48,12 +48,12 @@ CREATE TABLE IF NOT EXISTS commits (
 );
 
 CREATE TABLE IF NOT EXISTS working_trees (
-    repo_id        TEXT NOT NULL,
+    project_id     TEXT NOT NULL,
     branch_id      TEXT NOT NULL,
     base_commit_id TEXT,
     tree_json      TEXT NOT NULL,
     updated_at     INTEGER NOT NULL,
-    PRIMARY KEY (repo_id, branch_id)
+    PRIMARY KEY (project_id, branch_id)
 );
 
 CREATE TABLE IF NOT EXISTS data_sources (
@@ -84,7 +84,7 @@ CREATE TABLE IF NOT EXISTS settings (
 
 CREATE TABLE IF NOT EXISTS releases (
     id          TEXT PRIMARY KEY,
-    repo_id     TEXT NOT NULL,
+    project_id  TEXT NOT NULL,
     environment TEXT NOT NULL,
     commit_id   TEXT NOT NULL,
     message     TEXT,
@@ -93,18 +93,30 @@ CREATE TABLE IF NOT EXISTS releases (
     created_at  BIGINT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_commits_repo ON commits (repo_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_branches_repo ON branches (repo_id);
-CREATE INDEX IF NOT EXISTS idx_repos_tenant ON repos (tenant_id);
+CREATE INDEX IF NOT EXISTS idx_commits_project ON commits (project_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_branches_project ON branches (project_id);
+CREATE INDEX IF NOT EXISTS idx_projects_tenant ON projects (tenant_id);
 CREATE INDEX IF NOT EXISTS idx_data_sources_tenant ON data_sources (tenant_id);
-CREATE INDEX IF NOT EXISTS idx_releases_repo ON releases (repo_id, environment, seq);
+CREATE INDEX IF NOT EXISTS idx_releases_project ON releases (project_id, environment, seq);
 "#;
+
+/// Renames applied **before** the schema is (re)created: a database from an
+/// earlier release still uses the `projects` naming, and creating an empty
+/// `projects` table first would shadow it. Failures are tolerated — on a fresh
+/// database these tables simply do not exist yet.
+const RENAME_MIGRATIONS: [&str; 5] = [
+    "ALTER TABLE repos RENAME TO projects",
+    "ALTER TABLE branches RENAME COLUMN repo_id TO project_id",
+    "ALTER TABLE commits RENAME COLUMN repo_id TO project_id",
+    "ALTER TABLE working_trees RENAME COLUMN repo_id TO project_id",
+    "ALTER TABLE releases RENAME COLUMN repo_id TO project_id",
+];
 
 /// Columns added after the initial release. `ALTER TABLE ... ADD COLUMN` has no
 /// `IF NOT EXISTS` on every backend, so failures are tolerated (they mean the
 /// column already exists).
 const MIGRATIONS: [&str; 1] = [
-    "ALTER TABLE repos ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'",
+    "ALTER TABLE projects ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'",
 ];
 
 pub async fn connect(url: &str) -> Result<AnyPool> {
@@ -146,6 +158,11 @@ fn sqlite_file_path(url: &str) -> Option<String> {
 }
 
 pub async fn init_schema(pool: &AnyPool) -> Result<()> {
+    for stmt in RENAME_MIGRATIONS {
+        if let Err(err) = sqlx::query(stmt).execute(pool).await {
+            tracing::debug!("rename migration skipped ({err}): {stmt}");
+        }
+    }
     for stmt in SCHEMA_SQL.split(';') {
         let stmt = stmt.trim();
         if stmt.is_empty() {

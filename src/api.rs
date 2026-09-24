@@ -83,7 +83,7 @@ type ApiResult<T> = Result<T, ApiError>;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct CreateRepoReq {
+struct CreateProjectReq {
     name: String,
     #[serde(default)]
     description: Option<String>,
@@ -242,7 +242,7 @@ struct ArtifactView {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct WorkingView {
-    repo: RepoRow,
+    project: ProjectRow,
     branch: BranchRow,
     base_commit_id: Option<String>,
     artifacts: Vec<ArtifactView>,
@@ -288,57 +288,57 @@ pub fn router(pool: AnyPool) -> Router {
     let api = Router::new()
         .route("/api/health", get(health))
         .route(
-            "/api/repos",
-            get(list_repos).post(create_repo),
+            "/api/projects",
+            get(list_projects).post(create_project),
         )
         .route(
-            "/api/repos/{repo_id}",
-            get(get_repo).delete(delete_repo),
+            "/api/projects/{project_id}",
+            get(get_project).delete(delete_project),
         )
         .route(
-            "/api/repos/{repo_id}/branches",
+            "/api/projects/{project_id}/branches",
             get(list_branches).post(create_branch),
         )
         .route(
-            "/api/repos/{repo_id}/branches/{branch_id}",
+            "/api/projects/{project_id}/branches/{branch_id}",
             delete(delete_branch),
         )
         .route(
-            "/api/repos/{repo_id}/branches/{branch_id}/checkout",
+            "/api/projects/{project_id}/branches/{branch_id}/checkout",
             post(checkout_branch),
         )
-        .route("/api/repos/{repo_id}/working", get(get_working))
+        .route("/api/projects/{project_id}/working", get(get_working))
         .route(
-            "/api/repos/{repo_id}/artifacts",
+            "/api/projects/{project_id}/artifacts",
             get(list_artifacts).post(upsert_artifact),
         )
         .route(
-            "/api/repos/{repo_id}/artifacts/{kind}/{key}",
+            "/api/projects/{project_id}/artifacts/{kind}/{key}",
             get(get_artifact)
                 .put(update_artifact)
                 .delete(delete_artifact),
         )
         .route(
-            "/api/repos/{repo_id}/commits",
+            "/api/projects/{project_id}/commits",
             get(list_commits).post(create_commit),
         )
-        .route("/api/repos/{repo_id}/commits/{commit_id}", get(get_commit))
-        .route("/api/repos/{repo_id}/diff", get(diff))
-        .route("/api/repos/{repo_id}/reset", post(reset))
-        .route("/api/repos/{repo_id}/merge", post(merge))
-        .route("/api/repos/{repo_id}/validate", get(validate))
-        .route("/api/repos/{repo_id}/export", get(export))
-        .route("/api/repos/{repo_id}/import", post(import))
+        .route("/api/projects/{project_id}/commits/{commit_id}", get(get_commit))
+        .route("/api/projects/{project_id}/diff", get(diff))
+        .route("/api/projects/{project_id}/reset", post(reset))
+        .route("/api/projects/{project_id}/merge", post(merge))
+        .route("/api/projects/{project_id}/validate", get(validate))
+        .route("/api/projects/{project_id}/export", get(export))
+        .route("/api/projects/{project_id}/import", post(import))
         .route(
-            "/api/repos/{repo_id}/semantic/preview",
+            "/api/projects/{project_id}/semantic/preview",
             get(semantic_preview),
         )
         .route(
-            "/api/repos/{repo_id}/semantic/deploy",
+            "/api/projects/{project_id}/semantic/deploy",
             post(semantic_deploy),
         )
         .route(
-            "/api/repos/{repo_id}/semantic/deploy-to-source",
+            "/api/projects/{project_id}/semantic/deploy-to-source",
             post(semantic_deploy_to_source),
         )
         // ---- platform: tenants / data sources / settings ----
@@ -359,14 +359,14 @@ pub fn router(pool: AnyPool) -> Router {
         .route("/api/settings", get(get_settings).put(put_settings))
         // ---- version release (dev/prod boundary, design-ouline §1.5) ----
         .route(
-            "/api/repos/{repo_id}/releases",
+            "/api/projects/{project_id}/releases",
             get(list_releases).post(create_release),
         )
         .route(
-            "/api/repos/{repo_id}/releases/{release_id}",
+            "/api/projects/{project_id}/releases/{release_id}",
             delete(delete_release),
         )
-        .route("/api/repos/{repo_id}/released", get(released_document))
+        .route("/api/projects/{project_id}/released", get(released_document))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state);
@@ -393,31 +393,31 @@ async fn health() -> Json<Value> {
     }))
 }
 
-async fn create_repo(
+async fn create_project(
     State(state): State<AppState>,
-    Json(req): Json<CreateRepoReq>,
-) -> ApiResult<(StatusCode, Json<RepoRow>)> {
+    Json(req): Json<CreateProjectReq>,
+) -> ApiResult<(StatusCode, Json<ProjectRow>)> {
     let tenant = req
         .tenant_id
         .as_deref()
         .filter(|t| !t.trim().is_empty())
         .unwrap_or(platform::DEFAULT_TENANT);
-    let repo = vcs::create_repo_scoped(
+    let project = vcs::create_project_scoped(
         &state.pool,
         tenant,
         &req.name,
         req.description.as_deref(),
     )
     .await?;
-    Ok((StatusCode::CREATED, Json(repo)))
+    Ok((StatusCode::CREATED, Json(project)))
 }
 
-async fn list_repos(
+async fn list_projects(
     State(state): State<AppState>,
     Query(q): Query<TenantQuery>,
-) -> ApiResult<Json<Vec<RepoRow>>> {
+) -> ApiResult<Json<Vec<ProjectRow>>> {
     Ok(Json(
-        vcs::list_repos_scoped(&state.pool, &q.resolve()).await?,
+        vcs::list_projects_scoped(&state.pool, &q.resolve()).await?,
     ))
 }
 
@@ -518,25 +518,25 @@ async fn put_settings(
 
 async fn list_releases(
     State(state): State<AppState>,
-    Path(repo_id): Path<String>,
+    Path(project_id): Path<String>,
 ) -> ApiResult<Json<Vec<release::ReleaseRow>>> {
-    Ok(Json(release::list_releases(&state.pool, &repo_id).await?))
+    Ok(Json(release::list_releases(&state.pool, &project_id).await?))
 }
 
 async fn create_release(
     State(state): State<AppState>,
-    Path(repo_id): Path<String>,
+    Path(project_id): Path<String>,
     Json(req): Json<ReleaseReq>,
 ) -> ApiResult<(StatusCode, Json<release::ReleaseRow>)> {
     let commit_id = match req.commit_id.as_deref().filter(|c| !c.trim().is_empty()) {
         Some(explicit) => {
-            if vcs::get_commit(&state.pool, &repo_id, explicit).await?.is_none() {
+            if vcs::get_commit(&state.pool, &project_id, explicit).await?.is_none() {
                 return Err(ApiError::Bad(format!("commit `{explicit}` not found")));
             }
             explicit.to_string()
         }
         None => {
-            let branch = vcs::working_branch(&state.pool, &repo_id).await?;
+            let branch = vcs::working_branch(&state.pool, &project_id).await?;
             branch.head_commit_id.ok_or_else(|| {
                 ApiError::Bad("current branch has no commit to release".into())
             })?
@@ -552,7 +552,7 @@ async fn create_release(
 
     let row = release::publish(
         &state.pool,
-        &repo_id,
+        &project_id,
         &req.environment,
         &commit_id,
         req.message.as_deref(),
@@ -564,7 +564,7 @@ async fn create_release(
 
 async fn delete_release(
     State(state): State<AppState>,
-    Path((_repo_id, release_id)): Path<(String, String)>,
+    Path((_project_id, release_id)): Path<(String, String)>,
 ) -> ApiResult<Json<Value>> {
     release::delete_release(&state.pool, &release_id).await?;
     Ok(Json(json!({ "deleted": true })))
@@ -574,7 +574,7 @@ async fn delete_release(
 /// model consumers should read.
 async fn released_document(
     State(state): State<AppState>,
-    Path(repo_id): Path<String>,
+    Path(project_id): Path<String>,
     Query(q): Query<ReleasedQuery>,
 ) -> ApiResult<Response> {
     let environment = q
@@ -582,14 +582,14 @@ async fn released_document(
         .as_deref()
         .filter(|e| !e.trim().is_empty())
         .unwrap_or(release::DEFAULT_ENVIRONMENT);
-    let Some(row) = release::latest_release(&state.pool, &repo_id, environment).await? else {
+    let Some(row) = release::latest_release(&state.pool, &project_id, environment).await? else {
         return Err(ApiError::NotFound(format!(
             "no release published to `{environment}`"
         )));
     };
-    let repo = vcs::get_repo(&state.pool, &repo_id).await?;
+    let project = vcs::get_project(&state.pool, &project_id).await?;
     let snapshot = vcs::commit_snapshot(&state.pool, &row.commit_id).await?;
-    let doc = export::snapshot_to_doc(&snapshot, &repo.name, repo.description.as_deref());
+    let doc = export::snapshot_to_doc(&snapshot, &project.name, project.description.as_deref());
 
     let format = q.format.as_deref().unwrap_or("yaml");
     let (content_type, body) = if format == "json" {
@@ -619,53 +619,53 @@ async fn released_document(
     Ok(response)
 }
 
-async fn get_repo(
+async fn get_project(
     State(state): State<AppState>,
-    Path(repo_id): Path<String>,
-) -> ApiResult<Json<RepoRow>> {
-    Ok(Json(vcs::get_repo(&state.pool, &repo_id).await?))
+    Path(project_id): Path<String>,
+) -> ApiResult<Json<ProjectRow>> {
+    Ok(Json(vcs::get_project(&state.pool, &project_id).await?))
 }
 
-async fn delete_repo(
+async fn delete_project(
     State(state): State<AppState>,
-    Path(repo_id): Path<String>,
+    Path(project_id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    vcs::delete_repo(&state.pool, &repo_id).await?;
+    vcs::delete_project(&state.pool, &project_id).await?;
     Ok(Json(json!({ "deleted": true })))
 }
 
 async fn list_branches(
     State(state): State<AppState>,
-    Path(repo_id): Path<String>,
+    Path(project_id): Path<String>,
 ) -> ApiResult<Json<Vec<BranchRow>>> {
-    Ok(Json(vcs::list_branches(&state.pool, &repo_id).await?))
+    Ok(Json(vcs::list_branches(&state.pool, &project_id).await?))
 }
 
 async fn parse_branch_from(
     pool: &AnyPool,
-    repo_id: &str,
+    project_id: &str,
     raw: Option<&str>,
 ) -> ApiResult<BranchFrom> {
     let Some(raw) = raw else {
         return Ok(BranchFrom::Default);
     };
     if let Some(id) = raw.strip_prefix("commit:") {
-        if vcs::get_commit(pool, repo_id, id).await?.is_some() {
+        if vcs::get_commit(pool, project_id, id).await?.is_some() {
             return Ok(BranchFrom::Commit(id.to_string()));
         }
         return Err(ApiError::Bad(format!("commit `{id}` not found")));
     }
     if let Some(name) = raw.strip_prefix("branch:") {
-        if vcs::find_branch(pool, repo_id, name).await.is_ok() {
+        if vcs::find_branch(pool, project_id, name).await.is_ok() {
             return Ok(BranchFrom::Branch(name.to_string()));
         }
         return Err(ApiError::Bad(format!("branch `{name}` not found")));
     }
     // Bare string: prefer an existing branch, then a commit id.
-    if vcs::find_branch(pool, repo_id, raw).await.is_ok() {
+    if vcs::find_branch(pool, project_id, raw).await.is_ok() {
         return Ok(BranchFrom::Branch(raw.to_string()));
     }
-    if vcs::get_commit(pool, repo_id, raw).await?.is_some() {
+    if vcs::get_commit(pool, project_id, raw).await?.is_some() {
         return Ok(BranchFrom::Commit(raw.to_string()));
     }
     Err(ApiError::Bad(format!(
@@ -675,41 +675,41 @@ async fn parse_branch_from(
 
 async fn create_branch(
     State(state): State<AppState>,
-    Path(repo_id): Path<String>,
+    Path(project_id): Path<String>,
     Json(req): Json<CreateBranchReq>,
 ) -> ApiResult<(StatusCode, Json<BranchRow>)> {
-    let from = parse_branch_from(&state.pool, &repo_id, req.from.as_deref()).await?;
-    let branch = vcs::create_branch(&state.pool, &repo_id, &req.name, &from).await?;
+    let from = parse_branch_from(&state.pool, &project_id, req.from.as_deref()).await?;
+    let branch = vcs::create_branch(&state.pool, &project_id, &req.name, &from).await?;
     Ok((StatusCode::CREATED, Json(branch)))
 }
 
 async fn delete_branch(
     State(state): State<AppState>,
-    Path((repo_id, branch_id)): Path<(String, String)>,
+    Path((project_id, branch_id)): Path<(String, String)>,
 ) -> ApiResult<Json<Value>> {
-    vcs::delete_branch(&state.pool, &repo_id, &branch_id).await?;
+    vcs::delete_branch(&state.pool, &project_id, &branch_id).await?;
     Ok(Json(json!({ "deleted": true })))
 }
 
 async fn checkout_branch(
     State(state): State<AppState>,
-    Path((repo_id, branch_id)): Path<(String, String)>,
+    Path((project_id, branch_id)): Path<(String, String)>,
 ) -> ApiResult<Json<Value>> {
-    let repo = vcs::checkout_branch(&state.pool, &repo_id, &branch_id).await?;
-    let Some(bid) = repo.head_branch_id.as_ref() else {
+    let project = vcs::checkout_branch(&state.pool, &project_id, &branch_id).await?;
+    let Some(bid) = project.head_branch_id.as_ref() else {
         return Err(ApiError::Bad("checkout produced no head branch".into()));
     };
-    let branch = vcs::get_branch(&state.pool, &repo_id, bid).await?;
-    Ok(Json(json!({ "repo": repo, "branch": branch })))
+    let branch = vcs::get_branch(&state.pool, &project_id, bid).await?;
+    Ok(Json(json!({ "project": project, "branch": branch })))
 }
 
 async fn get_working(
     State(state): State<AppState>,
-    Path(repo_id): Path<String>,
+    Path(project_id): Path<String>,
 ) -> ApiResult<Json<WorkingView>> {
-    let repo = vcs::get_repo(&state.pool, &repo_id).await?;
-    let branch = vcs::working_branch(&state.pool, &repo_id).await?;
-    let snapshot = vcs::get_working_tree(&state.pool, &repo_id).await?;
+    let project = vcs::get_project(&state.pool, &project_id).await?;
+    let branch = vcs::working_branch(&state.pool, &project_id).await?;
+    let snapshot = vcs::get_working_tree(&state.pool, &project_id).await?;
     let base_commit_id = branch.head_commit_id.clone();
     let artifacts = snapshot
         .iter()
@@ -726,7 +726,7 @@ async fn get_working(
         .collect();
     let issues = validation::validate_snapshot(&snapshot);
     Ok(Json(WorkingView {
-        repo,
+        project,
         branch,
         base_commit_id,
         artifacts,
@@ -736,10 +736,10 @@ async fn get_working(
 
 async fn list_artifacts(
     State(state): State<AppState>,
-    Path(repo_id): Path<String>,
+    Path(project_id): Path<String>,
     Query(q): Query<ListArtifactsQuery>,
 ) -> ApiResult<Json<Vec<ArtifactView>>> {
-    let artifacts = vcs::list_artifacts(&state.pool, &repo_id, q.kind.as_deref())
+    let artifacts = vcs::list_artifacts(&state.pool, &project_id, q.kind.as_deref())
         .await?
         .into_iter()
         .map(|(key, body)| {
@@ -754,10 +754,10 @@ async fn list_artifacts(
 
 async fn upsert_artifact(
     State(state): State<AppState>,
-    Path(repo_id): Path<String>,
+    Path(project_id): Path<String>,
     Json(req): Json<UpsertArtifactReq>,
 ) -> ApiResult<(StatusCode, Json<ArtifactView>)> {
-    let body = vcs::upsert_artifact(&state.pool, &repo_id, &req.kind, &req.key, req.body).await?;
+    let body = vcs::upsert_artifact(&state.pool, &project_id, &req.kind, &req.key, req.body).await?;
     Ok((
         StatusCode::CREATED,
         Json(ArtifactView {
@@ -770,9 +770,9 @@ async fn upsert_artifact(
 
 async fn get_artifact(
     State(state): State<AppState>,
-    Path((repo_id, kind, key)): Path<(String, String, String)>,
+    Path((project_id, kind, key)): Path<(String, String, String)>,
 ) -> ApiResult<Json<ArtifactView>> {
-    let body = vcs::get_artifact(&state.pool, &repo_id, &kind, &key)
+    let body = vcs::get_artifact(&state.pool, &project_id, &kind, &key)
         .await?
         .ok_or_else(|| ApiError::NotFound(format!("artifact {kind}:{key} not found")))?;
     Ok(Json(ArtifactView { kind, key, body }))
@@ -780,50 +780,50 @@ async fn get_artifact(
 
 async fn update_artifact(
     State(state): State<AppState>,
-    Path((repo_id, kind, key)): Path<(String, String, String)>,
+    Path((project_id, kind, key)): Path<(String, String, String)>,
     Json(body): Json<Value>,
 ) -> ApiResult<Json<ArtifactView>> {
-    let body = vcs::upsert_artifact(&state.pool, &repo_id, &kind, &key, body).await?;
+    let body = vcs::upsert_artifact(&state.pool, &project_id, &kind, &key, body).await?;
     Ok(Json(ArtifactView { kind, key, body }))
 }
 
 async fn delete_artifact(
     State(state): State<AppState>,
-    Path((repo_id, kind, key)): Path<(String, String, String)>,
+    Path((project_id, kind, key)): Path<(String, String, String)>,
 ) -> ApiResult<Json<Value>> {
-    let removed = vcs::delete_artifact(&state.pool, &repo_id, &kind, &key).await?;
+    let removed = vcs::delete_artifact(&state.pool, &project_id, &kind, &key).await?;
     Ok(Json(json!({ "deleted": removed.is_some() })))
 }
 
 async fn create_commit(
     State(state): State<AppState>,
-    Path(repo_id): Path<String>,
+    Path(project_id): Path<String>,
     Json(req): Json<CommitReq>,
 ) -> ApiResult<(StatusCode, Json<CommitDto>)> {
-    let row = vcs::create_commit(&state.pool, &repo_id, &req.message, &req.author).await?;
-    let dto = commit_dto(&state.pool, &repo_id, &row.id).await?;
+    let row = vcs::create_commit(&state.pool, &project_id, &req.message, &req.author).await?;
+    let dto = commit_dto(&state.pool, &project_id, &row.id).await?;
     Ok((StatusCode::CREATED, Json(dto)))
 }
 
 async fn list_commits(
     State(state): State<AppState>,
-    Path(repo_id): Path<String>,
+    Path(project_id): Path<String>,
 ) -> ApiResult<Json<Vec<CommitDto>>> {
-    Ok(Json(vcs::list_commits(&state.pool, &repo_id).await?))
+    Ok(Json(vcs::list_commits(&state.pool, &project_id).await?))
 }
 
 async fn get_commit(
     State(state): State<AppState>,
-    Path((repo_id, commit_id)): Path<(String, String)>,
+    Path((project_id, commit_id)): Path<(String, String)>,
 ) -> ApiResult<Json<CommitDto>> {
-    Ok(Json(commit_dto(&state.pool, &repo_id, &commit_id).await?))
+    Ok(Json(commit_dto(&state.pool, &project_id, &commit_id).await?))
 }
 
-async fn commit_dto(pool: &AnyPool, repo_id: &str, commit_id: &str) -> ApiResult<CommitDto> {
-    let row = vcs::get_commit(pool, repo_id, commit_id)
+async fn commit_dto(pool: &AnyPool, project_id: &str, commit_id: &str) -> ApiResult<CommitDto> {
+    let row = vcs::get_commit(pool, project_id, commit_id)
         .await?
         .ok_or_else(|| ApiError::NotFound(format!("commit {commit_id} not found")))?;
-    let branches = vcs::list_branches(pool, repo_id)
+    let branches = vcs::list_branches(pool, project_id)
         .await?
         .into_iter()
         .filter(|b| b.head_commit_id.as_deref() == Some(commit_id))
@@ -834,13 +834,13 @@ async fn commit_dto(pool: &AnyPool, repo_id: &str, commit_id: &str) -> ApiResult
 
 async fn diff(
     State(state): State<AppState>,
-    Path(repo_id): Path<String>,
+    Path(project_id): Path<String>,
     Query(q): Query<DiffQuery>,
 ) -> ApiResult<Json<DiffView>> {
-    let from_spec = vcs::resolve_ref(&state.pool, &repo_id, &q.from).await?;
-    let to_spec = vcs::resolve_ref(&state.pool, &repo_id, &q.to).await?;
-    let a = vcs::snapshot_for_ref(&state.pool, &repo_id, &from_spec).await?;
-    let b = vcs::snapshot_for_ref(&state.pool, &repo_id, &to_spec).await?;
+    let from_spec = vcs::resolve_ref(&state.pool, &project_id, &q.from).await?;
+    let to_spec = vcs::resolve_ref(&state.pool, &project_id, &q.to).await?;
+    let a = vcs::snapshot_for_ref(&state.pool, &project_id, &from_spec).await?;
+    let b = vcs::snapshot_for_ref(&state.pool, &project_id, &to_spec).await?;
     Ok(Json(DiffView {
         from: q.from,
         to: q.to,
@@ -850,28 +850,28 @@ async fn diff(
 
 async fn reset(
     State(state): State<AppState>,
-    Path(repo_id): Path<String>,
+    Path(project_id): Path<String>,
     Json(req): Json<ResetReq>,
 ) -> ApiResult<Json<CommitDto>> {
-    let row = vcs::reset_to_commit(&state.pool, &repo_id, &req.commit_id).await?;
-    Ok(Json(commit_dto(&state.pool, &repo_id, &row.id).await?))
+    let row = vcs::reset_to_commit(&state.pool, &project_id, &req.commit_id).await?;
+    Ok(Json(commit_dto(&state.pool, &project_id, &row.id).await?))
 }
 
 async fn merge(
     State(state): State<AppState>,
-    Path(repo_id): Path<String>,
+    Path(project_id): Path<String>,
     Json(req): Json<MergeReq>,
 ) -> ApiResult<Json<vcs::MergeOutcome>> {
     Ok(Json(
-        vcs::merge_branch(&state.pool, &repo_id, &req.from, &req.message, &req.author).await?,
+        vcs::merge_branch(&state.pool, &project_id, &req.from, &req.message, &req.author).await?,
     ))
 }
 
 async fn validate(
     State(state): State<AppState>,
-    Path(repo_id): Path<String>,
+    Path(project_id): Path<String>,
 ) -> ApiResult<Json<ValidateView>> {
-    let snapshot = vcs::get_working_tree(&state.pool, &repo_id).await?;
+    let snapshot = vcs::get_working_tree(&state.pool, &project_id).await?;
     let issues = validation::validate_snapshot(&snapshot);
     Ok(Json(ValidateView {
         valid: !validation::has_errors(&issues),
@@ -881,12 +881,12 @@ async fn validate(
 
 async fn export(
     State(state): State<AppState>,
-    Path(repo_id): Path<String>,
+    Path(project_id): Path<String>,
     Query(q): Query<ExportQuery>,
 ) -> ApiResult<Response> {
-    let repo = vcs::get_repo(&state.pool, &repo_id).await?;
-    let snapshot = vcs::get_working_tree(&state.pool, &repo_id).await?;
-    let doc = export::snapshot_to_doc(&snapshot, &repo.name, repo.description.as_deref());
+    let project = vcs::get_project(&state.pool, &project_id).await?;
+    let snapshot = vcs::get_working_tree(&state.pool, &project_id).await?;
+    let doc = export::snapshot_to_doc(&snapshot, &project.name, project.description.as_deref());
     let format = q.format.unwrap_or_else(|| "yaml".into());
     let (body, content_type) = match format.as_str() {
         "json" => (export::to_json(&doc)?, "application/json".to_string()),
@@ -901,7 +901,7 @@ async fn export(
 
 async fn import(
     State(state): State<AppState>,
-    Path(repo_id): Path<String>,
+    Path(project_id): Path<String>,
     Json(req): Json<ImportReq>,
 ) -> ApiResult<Json<ImportView>> {
     let doc = export::parse_doc(&req.content, &req.format)
@@ -910,17 +910,17 @@ async fn import(
         .map_err(|e| ApiError::Bad(format!("invalid Ossie document: {e}")))?;
     let issues = validation::validate_snapshot(&snapshot);
     let imported = snapshot.len();
-    let branch = vcs::working_branch(&state.pool, &repo_id).await?;
-    vcs::save_working_tree(&state.pool, &repo_id, &branch.id, &snapshot).await?;
+    let branch = vcs::working_branch(&state.pool, &project_id).await?;
+    vcs::save_working_tree(&state.pool, &project_id, &branch.id, &snapshot).await?;
     Ok(Json(ImportView { imported, issues }))
 }
 
 async fn semantic_preview(
     State(state): State<AppState>,
-    Path(repo_id): Path<String>,
+    Path(project_id): Path<String>,
     Query(q): Query<PreviewQuery>,
 ) -> ApiResult<Json<Value>> {
-    let snapshot = vcs::get_working_tree(&state.pool, &repo_id).await?;
+    let snapshot = vcs::get_working_tree(&state.pool, &project_id).await?;
     let ddl = generate_semantic_ddl(&snapshot, q.schema.as_deref().unwrap_or("public"));
     Ok(Json(json!({
         "sql": ddl.sql,
@@ -930,11 +930,11 @@ async fn semantic_preview(
 
 async fn semantic_deploy(
     State(state): State<AppState>,
-    Path(repo_id): Path<String>,
+    Path(project_id): Path<String>,
     Json(req): Json<DeployReq>,
 ) -> ApiResult<Json<DeployView>> {
     let schema = req.schema.as_deref().unwrap_or("public").to_string();
-    let (ddl, statements) = semantic_deployment(&state.pool, &repo_id, &schema).await?;
+    let (ddl, statements) = semantic_deployment(&state.pool, &project_id, &schema).await?;
     let applied = apply_ddl(&req.connection_url, &ddl.statements).await?;
     Ok(Json(DeployView {
         applied,
@@ -947,7 +947,7 @@ async fn semantic_deploy(
 /// connection coordinates stay on the platform instead of the request body.
 async fn semantic_deploy_to_source(
     State(state): State<AppState>,
-    Path(repo_id): Path<String>,
+    Path(project_id): Path<String>,
     Json(req): Json<DeployToSourceReq>,
 ) -> ApiResult<Json<DeployView>> {
     let source = platform::get_data_source(&state.pool, &req.data_source_id).await?;
@@ -957,7 +957,7 @@ async fn semantic_deploy_to_source(
         .filter(|s| !s.trim().is_empty())
         .unwrap_or(&source.default_schema)
         .to_string();
-    let (ddl, statements) = semantic_deployment(&state.pool, &repo_id, &schema).await?;
+    let (ddl, statements) = semantic_deployment(&state.pool, &project_id, &schema).await?;
     let applied = apply_ddl(&source.connection_url(), &ddl.statements).await?;
     Ok(Json(DeployView {
         applied,
@@ -968,10 +968,10 @@ async fn semantic_deploy_to_source(
 
 async fn semantic_deployment(
     pool: &AnyPool,
-    repo_id: &str,
+    project_id: &str,
     schema: &str,
 ) -> ApiResult<(crate::ddl::GeneratedDdl, usize)> {
-    let snapshot = vcs::get_working_tree(pool, repo_id).await?;
+    let snapshot = vcs::get_working_tree(pool, project_id).await?;
     let issues = validation::validate_snapshot(&snapshot);
     if validation::has_errors(&issues) {
         return Err(ApiError::Validation { issues });

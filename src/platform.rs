@@ -1,4 +1,4 @@
-// Platform-level objects that live outside a single model repository:
+// Platform-level objects that live outside a single model project:
 // tenants (isolation boundary), PostgreSQL data sources and tenant settings.
 //
 // Anything that is environment-specific (host / port / credentials) belongs
@@ -86,13 +86,13 @@ pub async fn delete_tenant(pool: &AnyPool, id: &str) -> ModelResult<()> {
     if id == DEFAULT_TENANT {
         return Err(ModelError::Bad("the default tenant cannot be deleted".into()));
     }
-    let repo_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM repos WHERE tenant_id = ?")
+    let project_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM projects WHERE tenant_id = ?")
         .bind(id)
         .fetch_one(pool)
         .await?;
-    if repo_count.0 > 0 {
+    if project_count.0 > 0 {
         return Err(ModelError::Bad(
-            "tenant still owns model repositories; delete them first".into(),
+            "tenant still owns model projects; delete them first".into(),
         ));
     }
     let affected = sqlx::query("DELETE FROM tenants WHERE id = ?")
@@ -496,10 +496,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn tenant_with_repos_cannot_be_deleted() {
+    async fn tenant_with_projects_cannot_be_deleted() {
         let pool = test_pool().await;
         let tenant = create_tenant(&pool, "gamma", None).await.unwrap();
-        crate::vcs::create_repo_scoped(&pool, &tenant.id, "retail", None)
+        crate::vcs::create_project_scoped(&pool, &tenant.id, "retail", None)
             .await
             .unwrap();
         assert!(delete_tenant(&pool, &tenant.id).await.is_err());

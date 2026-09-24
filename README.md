@@ -77,47 +77,47 @@ n 元虚拟实体 hub）：
 
 ### Git 式版本控制
 
-- 每个仓库默认 `main` 分支 + 初始提交；工作区即当前分支的编辑快照。
+- 每个项目默认 `main` 分支 + 初始提交；工作区即当前分支的编辑快照。
 - 支持：创建/切换/删除分支、提交（校验通过才允许）、历史、任意两个 ref 的 diff（`working` / `head` / 分支名 / 提交 id / `HEAD~N`）、硬重置、三路合并（找共同祖先，冲突时返回冲突工件列表，不落库）。
 - diff 为工件级结构化变更（added/removed/modified）+ 行级 unified 文本。
 
 ### 导入导出
 
-- 导出：`GET /api/repos/:id/export?format=yaml|json`，生成符合 Ossie `0.2.0.dev0` 的文档（`ontology` + `semantic_model` 两个 section，关系按概念分组）。
-- 导入：`POST /api/repos/:id/import`，把嵌套的关系拆回工件写入工作区；`examples/sample_model.yaml` 是现成的示例。
+- 导出：`GET /api/projects/:id/export?format=yaml|json`，生成符合 Ossie `0.2.0.dev0` 的文档（`ontology` + `semantic_model` 两个 section，关系按概念分组）。
+- 导入：`POST /api/projects/:id/import`，把嵌套的关系拆回工件写入工作区；`examples/sample_model.yaml` 是现成的示例。
 
 ## API 一览
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/health` | 健康检查 |
-| POST/GET | `/api/repos` | 创建 / 列出仓库 |
-| GET/DELETE | `/api/repos/{id}` | 仓库详情 / 删除 |
-| GET/POST | `/api/repos/{id}/branches` | 分支列表 / 创建（`from` 支持 `default`、`branch:<名>`、`commit:<id>`） |
-| POST/DELETE | `/api/repos/{id}/branches/{branch}` | 切换 / 删除分支 |
-| GET | `/api/repos/{id}/working` | 工作区快照 + 校验问题 |
-| GET/POST | `/api/repos/{id}/artifacts` | 工件列表 / 创建更新 |
-| GET/PUT/DELETE | `/api/repos/{id}/artifacts/{kind}/{key}` | 单个工件 |
-| GET/POST | `/api/repos/{id}/commits` | 历史 / 提交 |
-| GET | `/api/repos/{id}/commits/{commit}` | 提交详情（含树） |
-| GET | `/api/repos/{id}/diff?from=&to=` | 任意 ref 差异 |
-| POST | `/api/repos/{id}/reset` | 硬重置当前分支 |
-| POST | `/api/repos/{id}/merge` | 三路合并 |
-| GET | `/api/repos/{id}/validate` | 校验当前工作区 |
-| GET | `/api/repos/{id}/export` | 导出 Ossie YAML/JSON |
-| POST | `/api/repos/{id}/import` | 导入 Ossie YAML/JSON |
-| GET | `/api/repos/{id}/semantic/preview?schema=` | 生成语义层 DDL |
-| POST | `/api/repos/{id}/semantic/deploy` | 部署语义层到 PostgreSQL |
-| POST | `/api/repos/{id}/semantic/deploy-to-source` | 通过已注册数据源部署语义层 |
+| POST/GET | `/api/projects` | 创建 / 列出项目 |
+| GET/DELETE | `/api/projects/{id}` | 项目详情 / 删除 |
+| GET/POST | `/api/projects/{id}/branches` | 分支列表 / 创建（`from` 支持 `default`、`branch:<名>`、`commit:<id>`） |
+| POST/DELETE | `/api/projects/{id}/branches/{branch}` | 切换 / 删除分支 |
+| GET | `/api/projects/{id}/working` | 工作区快照 + 校验问题 |
+| GET/POST | `/api/projects/{id}/artifacts` | 工件列表 / 创建更新 |
+| GET/PUT/DELETE | `/api/projects/{id}/artifacts/{kind}/{key}` | 单个工件 |
+| GET/POST | `/api/projects/{id}/commits` | 历史 / 提交 |
+| GET | `/api/projects/{id}/commits/{commit}` | 提交详情（含树） |
+| GET | `/api/projects/{id}/diff?from=&to=` | 任意 ref 差异 |
+| POST | `/api/projects/{id}/reset` | 硬重置当前分支 |
+| POST | `/api/projects/{id}/merge` | 三路合并 |
+| GET | `/api/projects/{id}/validate` | 校验当前工作区 |
+| GET | `/api/projects/{id}/export` | 导出 Ossie YAML/JSON |
+| POST | `/api/projects/{id}/import` | 导入 Ossie YAML/JSON |
+| GET | `/api/projects/{id}/semantic/preview?schema=` | 生成语义层 DDL |
+| POST | `/api/projects/{id}/semantic/deploy` | 部署语义层到 PostgreSQL |
+| POST | `/api/projects/{id}/semantic/deploy-to-source` | 通过已注册数据源部署语义层 |
 | GET/POST | `/api/tenants` | 租户列表 / 创建 |
-| DELETE | `/api/tenants/{id}` | 删除租户（需先清空其模型仓库） |
+| DELETE | `/api/tenants/{id}` | 删除租户（需先清空其项目） |
 | GET/POST | `/api/data-sources?tenant=` | PostgreSQL 数据源列表 / 创建 |
 | PUT/DELETE | `/api/data-sources/{id}` | 更新 / 删除数据源 |
 | POST | `/api/data-sources/{id}/test` | 测试连接 |
 | GET/PUT | `/api/settings?tenant=` | 按租户读取 / 写入设置 |
-| GET/POST | `/api/repos/{id}/releases` | 发布记录列表 / 发布当前提交到环境 |
-| DELETE | `/api/repos/{id}/releases/{releaseId}` | 删除发布记录（不删提交） |
-| GET | `/api/repos/{id}/released?environment=` | **消费方只读**：该环境当前发布的 OSSIE 文档 |
+| GET/POST | `/api/projects/{id}/releases` | 发布记录列表 / 发布当前提交到环境 |
+| DELETE | `/api/projects/{id}/releases/{releaseId}` | 删除发布记录（不删提交） |
+| GET | `/api/projects/{id}/released?environment=` | **消费方只读**：该环境当前发布的 OSSIE 文档 |
 
 工件 kind：`concept`、`ontology_relationship`、`dataset`、`semantic_relationship`、`metric`。
 
@@ -125,7 +125,7 @@ n 元虚拟实体 hub）：
 
 前端按商用建模工具的形态组织：**左侧按大功能分组的导航**，右侧为具体功能页，整体采用浅色主题。
 
-- **项目概览**：租户下的模型仓库列表（一份文档 = 一个语义模型），新建/打开/删除。
+- **项目概览**：租户下的项目列表（一份文档 = 一个语义模型），新建/打开/删除。
 - **本体**：概念表（EntityType / ValueType、extends、identify_by、关系数）。**关系不与概念平级**——
   按 ontology 规范它归属于「第一角色」所在的概念，因此点开概念详情即可查看 / 编辑「该概念声明的
   关系」（关系名、元数、角色、多重性、verbalizes）。另提供**图谱**（二元有向边 + 箭头端
@@ -136,7 +136,7 @@ n 元虚拟实体 hub）：
 - **数据源**：PostgreSQL 连接管理（坐标、默认 schema、连接测试）；**仅支持 PostgreSQL**。
 - **设置**：默认提交作者、默认部署 schema、租户管理与切换、规范版本与存储信息。
 
-**租户隔离**：模型仓库、数据源、设置均按 `tenant_id` 隔离，同名仓库可在不同租户下共存。
+**租户隔离**：项目、数据源、设置均按 `tenant_id` 隔离，同名项目可在不同租户下共存。
 当前为应用层过滤，尚未接入鉴权/RBAC（见 roadmap P5）。
 
 > 设计约束：环境令牌（host / 连接串 / metalake）只存在于数据源与设置中，**永不写入 OSSIE 文档**。
@@ -147,9 +147,9 @@ n 元虚拟实体 hub）：
 
 ```bash
 # 消费方读取某环境当前发布的模型（唯一对外读取入口）
-curl http://127.0.0.1:8080/api/repos/<repoId>/released?environment=prod
+curl http://127.0.0.1:8080/api/projects/<projectId>/released?environment=prod
 # 发布当前分支最新提交
-curl -X POST http://127.0.0.1:8080/api/repos/<repoId>/releases \
+curl -X POST http://127.0.0.1:8080/api/projects/<projectId>/releases \
   -H 'content-type: application/json' \
   -d '{"environment":"prod","message":"v1.2 新增订单域","author":"alice"}'
 ```

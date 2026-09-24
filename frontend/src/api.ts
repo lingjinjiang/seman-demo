@@ -10,7 +10,7 @@ import type {
   Issue,
   MergeOutcome,
   Release,
-  Repo,
+  Project,
   SettingsView,
   Tenant,
   WorkingView,
@@ -51,16 +51,16 @@ export const api = {
   health: () =>
     request<{ status: string; spec: string; storage: string }>("/api/health"),
 
-  listRepos: (tenant: string) =>
-    request<Repo[]>(`/api/repos?tenant=${encodeURIComponent(tenant)}`),
-  createRepo: (name: string, description: string | undefined, tenant: string) =>
-    request<Repo>("/api/repos", {
+  listProjects: (tenant: string) =>
+    request<Project[]>(`/api/projects?tenant=${encodeURIComponent(tenant)}`),
+  createProject: (name: string, description: string | undefined, tenant: string) =>
+    request<Project>("/api/projects", {
       method: "POST",
       body: JSON.stringify({ name, description, tenantId: tenant })
     }),
-  getRepo: (repoId: string) => request<Repo>(`/api/repos/${repoId}`),
-  deleteRepo: (repoId: string) =>
-    request<{ deleted: boolean }>(`/api/repos/${repoId}`, { method: "DELETE" }),
+  getProject: (projectId: string) => request<Project>(`/api/projects/${projectId}`),
+  deleteProject: (projectId: string) =>
+    request<{ deleted: boolean }>(`/api/projects/${projectId}`, { method: "DELETE" }),
 
   // ---- platform: tenants / data sources / settings ----
   listTenants: () => request<Tenant[]>("/api/tenants"),
@@ -111,101 +111,101 @@ export const api = {
       { method: "PUT", body: JSON.stringify({ values }) }
     ),
 
-  getWorking: (repoId: string) =>
-    request<WorkingView>(`/api/repos/${repoId}/working`),
+  getWorking: (projectId: string) =>
+    request<WorkingView>(`/api/projects/${projectId}/working`),
 
-  listBranches: (repoId: string) =>
-    request<Branch[]>(`/api/repos/${repoId}/branches`),
-  createBranch: (repoId: string, name: string, from?: string) =>
-    request<Branch>(`/api/repos/${repoId}/branches`, {
+  listBranches: (projectId: string) =>
+    request<Branch[]>(`/api/projects/${projectId}/branches`),
+  createBranch: (projectId: string, name: string, from?: string) =>
+    request<Branch>(`/api/projects/${projectId}/branches`, {
       method: "POST",
       body: JSON.stringify({ name, from })
     }),
-  checkoutBranch: (repoId: string, branchId: string) =>
-    request<any>(`/api/repos/${repoId}/branches/${branchId}/checkout`, {
+  checkoutBranch: (projectId: string, branchId: string) =>
+    request<any>(`/api/projects/${projectId}/branches/${branchId}/checkout`, {
       method: "POST",
       body: "{}"
     }),
-  deleteBranch: (repoId: string, branchId: string) =>
+  deleteBranch: (projectId: string, branchId: string) =>
     request<{ deleted: boolean }>(
-      `/api/repos/${repoId}/branches/${branchId}`,
+      `/api/projects/${projectId}/branches/${branchId}`,
       { method: "DELETE" }
     ),
 
-  upsertArtifact: (repoId: string, kind: string, key: string, body: any) =>
-    request<Artifact>(`/api/repos/${repoId}/artifacts`, {
+  upsertArtifact: (projectId: string, kind: string, key: string, body: any) =>
+    request<Artifact>(`/api/projects/${projectId}/artifacts`, {
       method: "POST",
       body: JSON.stringify({ kind, key, body })
     }),
-  deleteArtifact: (repoId: string, kind: string, key: string) =>
+  deleteArtifact: (projectId: string, kind: string, key: string) =>
     request<{ deleted: boolean }>(
-      `/api/repos/${repoId}/artifacts/${kind}/${encodeURIComponent(key)}`,
+      `/api/projects/${projectId}/artifacts/${kind}/${encodeURIComponent(key)}`,
       { method: "DELETE" }
     ),
 
-  createCommit: (repoId: string, message: string, author: string) =>
-    request<Commit>(`/api/repos/${repoId}/commits`, {
+  createCommit: (projectId: string, message: string, author: string) =>
+    request<Commit>(`/api/projects/${projectId}/commits`, {
       method: "POST",
       body: JSON.stringify({ message, author })
     }),
-  listCommits: (repoId: string) =>
-    request<Commit[]>(`/api/repos/${repoId}/commits`),
-  reset: (repoId: string, commitId: string) =>
-    request<Commit>(`/api/repos/${repoId}/reset`, {
+  listCommits: (projectId: string) =>
+    request<Commit[]>(`/api/projects/${projectId}/commits`),
+  reset: (projectId: string, commitId: string) =>
+    request<Commit>(`/api/projects/${projectId}/reset`, {
       method: "POST",
       body: JSON.stringify({ commitId })
     }),
-  merge: (repoId: string, from: string, message: string, author: string) =>
-    request<MergeOutcome>(`/api/repos/${repoId}/merge`, {
+  merge: (projectId: string, from: string, message: string, author: string) =>
+    request<MergeOutcome>(`/api/projects/${projectId}/merge`, {
       method: "POST",
       body: JSON.stringify({ from, message, author })
     }),
-  diff: (repoId: string, from: string, to: string) =>
+  diff: (projectId: string, from: string, to: string) =>
     request<DiffView>(
-      `/api/repos/${repoId}/diff?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+      `/api/projects/${projectId}/diff?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
     ),
-  changes: (repoId: string) =>
+  changes: (projectId: string) =>
     request<DiffView>(
-      `/api/repos/${repoId}/diff?from=head&to=working`
+      `/api/projects/${projectId}/diff?from=head&to=working`
     ).then((d) => d.changes),
 
-  validate: (repoId: string) =>
+  validate: (projectId: string) =>
     request<{ valid: boolean; issues: Issue[] }>(
-      `/api/repos/${repoId}/validate`
+      `/api/projects/${projectId}/validate`
     ),
-  exportYaml: async (repoId: string) => {
-    const res = await fetch(`/api/repos/${repoId}/export?format=yaml`);
+  exportYaml: async (projectId: string) => {
+    const res = await fetch(`/api/projects/${projectId}/export?format=yaml`);
     if (!res.ok) throw new Error(await res.text());
     return await res.text();
   },
-  importDoc: (repoId: string, format: string, content: string) =>
+  importDoc: (projectId: string, format: string, content: string) =>
     request<{ imported: number; issues: Issue[] }>(
-      `/api/repos/${repoId}/import`,
+      `/api/projects/${projectId}/import`,
       {
         method: "POST",
         body: JSON.stringify({ format, content })
       }
     ),
 
-  semanticPreview: (repoId: string, schema: string) =>
+  semanticPreview: (projectId: string, schema: string) =>
     request<{ sql: string; statements: string[] }>(
-      `/api/repos/${repoId}/semantic/preview?schema=${encodeURIComponent(schema)}`
+      `/api/projects/${projectId}/semantic/preview?schema=${encodeURIComponent(schema)}`
     ),
   semanticDeploy: (
-    repoId: string,
+    projectId: string,
     connectionUrl: string,
     schema: string
   ) =>
-    request<DeployView>(`/api/repos/${repoId}/semantic/deploy`, {
+    request<DeployView>(`/api/projects/${projectId}/semantic/deploy`, {
       method: "POST",
       body: JSON.stringify({ connectionUrl, schema })
     }),
   semanticDeployToSource: (
-    repoId: string,
+    projectId: string,
     dataSourceId: string,
     schema: string
   ) =>
-    request<DeployView>(`/api/repos/${repoId}/semantic/deploy-to-source`, {
+    request<DeployView>(`/api/projects/${projectId}/semantic/deploy-to-source`, {
       method: "POST",
       body: JSON.stringify({ dataSourceId, schema })
     }),
@@ -213,26 +213,26 @@ export const api = {
   // ---- releases: the published, consumer-facing view of a model ----
   // Consumers read `/released`; the working tree and branches stay private to
   // the modeling surface (design-ouline §1.5).
-  listReleases: (repoId: string) =>
-    request<Release[]>(`/api/repos/${repoId}/releases`),
+  listReleases: (projectId: string) =>
+    request<Release[]>(`/api/projects/${projectId}/releases`),
   createRelease: (
-    repoId: string,
+    projectId: string,
     environment: string,
     message: string,
     author: string,
     commitId?: string
   ) =>
-    request<Release>(`/api/repos/${repoId}/releases`, {
+    request<Release>(`/api/projects/${projectId}/releases`, {
       method: "POST",
       body: JSON.stringify({ environment, message, author, commitId })
     }),
-  deleteRelease: (repoId: string, releaseId: string) =>
+  deleteRelease: (projectId: string, releaseId: string) =>
     request<{ deleted: boolean }>(
-      `/api/repos/${repoId}/releases/${releaseId}`,
+      `/api/projects/${projectId}/releases/${releaseId}`,
       { method: "DELETE" }
     ),
-  releasedUrl: (repoId: string, environment: string, format = "yaml") =>
-    `/api/repos/${repoId}/released?environment=${encodeURIComponent(
+  releasedUrl: (projectId: string, environment: string, format = "yaml") =>
+    `/api/projects/${projectId}/released?environment=${encodeURIComponent(
       environment
     )}&format=${format}`
 };

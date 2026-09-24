@@ -77,7 +77,7 @@ export function SettingsPage({
   };
 
   const removeTenant = async (t: Tenant) => {
-    if (!confirm(`删除租户 ${t.name}？需先删除该租户下的所有模型仓库。`)) return;
+    if (!confirm(`删除租户 ${t.name}？需先删除该租户下的所有项目。`)) return;
     setBusy(true);
     setError(null);
     try {

@@ -186,6 +186,8 @@ Mapping：
 
 ### P5 治理与生态（持续）
 
+- [ ] **资源模型与权限模型**：见 `access-control.md`。分期：S1 术语与边界 → S2 发布门禁 + API Key 只读 release
+      → S3 完整 RBAC（成员/角色/中间件/审计）→ S4 OIDC、用户组、行列级策略
 - [ ] 用户/RBAC/多租户（OIDC：Keycloak）；审计日志
 - [ ] metrics 开放 API（REST/GraphQL）供 BI 工具消费
 - [ ] 条件项（客户信号触发）：OWL/LinkML 导入（LinkML 桥可借力其 OWL/SHACL 生成器）；行级 merge 冲突编辑

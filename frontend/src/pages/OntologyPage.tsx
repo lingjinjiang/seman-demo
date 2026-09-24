@@ -5,7 +5,7 @@ import { Modal } from "../components/Modal";
 import { OntologyGraph } from "../components/OntologyGraph";
 import { DataTable, PageHeader, Tabs, type Column } from "../components/ui";
 import { VersionBar } from "../components/VersionBar";
-import type { Artifact, Issue, RepoVersion } from "../types";
+import type { Artifact, Issue, ProjectVersion } from "../types";
 
 // Information architecture follows the ontology spec
 // (../ossie/ontology/ontology.md): an ontology groups *each relationship under
@@ -184,10 +184,10 @@ export function OntologyPage({
   version,
   refresh
 }: {
-  version: RepoVersion;
+  version: ProjectVersion;
   refresh: () => Promise<void>;
 }) {
-  const { repoId, working } = version;
+  const { projectId, working } = version;
   const [tab, setTab] = useState<TabKey>("concepts");
   // The concept whose detail (definition + its relationships) is open. The
   // empty string means "a concept being created".
@@ -250,13 +250,13 @@ export function OntologyPage({
     let cancelled = false;
     setRawError(null);
     api
-      .exportYaml(repoId)
+      .exportYaml(projectId)
       .then((text) => !cancelled && setRaw(text))
       .catch((e: any) => !cancelled && setRawError(e.message));
     return () => {
       cancelled = true;
     };
-  }, [tab, repoId, working]);
+  }, [tab, projectId, working]);
 
   const resetMessages = () => {
     setError(null);
@@ -300,7 +300,7 @@ export function OntologyPage({
     setBusy(true);
     resetMessages();
     try {
-      await api.upsertArtifact(repoId, "concept", key, body);
+      await api.upsertArtifact(projectId, "concept", key, body);
       // A concept created together with its relationships: commit the staged
       // ones now that the declaring concept has a name (spec: relationship is
       // identified by `Concept.relationship`).
@@ -308,7 +308,7 @@ export function OntologyPage({
         for (const rel of draftRels) {
           if (!rel.name) continue;
           await api.upsertArtifact(
-            repoId,
+            projectId,
             "ontology_relationship",
             `${key}.${rel.name}`,
             rel
@@ -339,7 +339,7 @@ export function OntologyPage({
     setBusy(true);
     resetMessages();
     try {
-      await api.upsertArtifact(repoId, "ontology_relationship", key, body);
+      await api.upsertArtifact(projectId, "ontology_relationship", key, body);
       await refresh();
       setRelEdit(null);
     } catch (e: any) {
@@ -355,7 +355,7 @@ export function OntologyPage({
     setBusy(true);
     resetMessages();
     try {
-      await api.deleteArtifact(repoId, deleteTarget.kind, deleteTarget.key);
+      await api.deleteArtifact(projectId, deleteTarget.kind, deleteTarget.key);
       await refresh();
       if (deleteTarget.kind === "concept") closeConcept();
       else setRelEdit(null);
@@ -474,7 +474,7 @@ export function OntologyPage({
 
       {/* Version is a capability of the model, not a separate destination. */}
       <VersionBar
-        repoId={repoId}
+        projectId={projectId}
         working={working}
         branches={version.branches}
         commits={version.commits}

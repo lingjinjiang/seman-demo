@@ -74,7 +74,7 @@ pub fn empty_snapshot() -> Snapshot {
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 #[serde(rename_all = "camelCase")]
-pub struct RepoRow {
+pub struct ProjectRow {
     pub id: String,
     pub tenant_id: String,
     pub name: String,
@@ -88,7 +88,7 @@ pub struct RepoRow {
 #[serde(rename_all = "camelCase")]
 pub struct BranchRow {
     pub id: String,
-    pub repo_id: String,
+    pub project_id: String,
     pub name: String,
     pub head_commit_id: Option<String>,
     pub is_default: bool,
@@ -101,7 +101,7 @@ impl sqlx::FromRow<'_, sqlx::any::AnyRow> for BranchRow {
         use sqlx::Row;
         Ok(BranchRow {
             id: row.try_get("id")?,
-            repo_id: row.try_get("repo_id")?,
+            project_id: row.try_get("project_id")?,
             name: row.try_get("name")?,
             head_commit_id: row.try_get("head_commit_id")?,
             is_default: row.try_get::<i64, _>("is_default")? != 0,
@@ -115,7 +115,7 @@ impl sqlx::FromRow<'_, sqlx::any::AnyRow> for BranchRow {
 #[serde(rename_all = "camelCase")]
 pub struct CommitRow {
     pub id: String,
-    pub repo_id: String,
+    pub project_id: String,
     pub branch_id: Option<String>,
     pub message: String,
     pub author: String,
@@ -129,7 +129,7 @@ pub struct CommitRow {
 #[serde(rename_all = "camelCase")]
 pub struct CommitDto {
     pub id: String,
-    pub repo_id: String,
+    pub project_id: String,
     pub message: String,
     pub author: String,
     pub parent_commit_id: Option<String>,
@@ -143,7 +143,7 @@ impl CommitDto {
     pub fn from_row(row: CommitRow, branches: Vec<String>) -> anyhow::Result<Self> {
         Ok(CommitDto {
             id: row.id,
-            repo_id: row.repo_id,
+            project_id: row.project_id,
             message: row.message,
             author: row.author,
             parent_commit_id: row.parent_commit_id,
@@ -157,8 +157,8 @@ impl CommitDto {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RepoDto {
-    pub repo: RepoRow,
+pub struct ProjectDto {
+    pub project: ProjectRow,
     pub branch: Option<BranchRow>,
     pub commits: Vec<CommitDto>,
 }
