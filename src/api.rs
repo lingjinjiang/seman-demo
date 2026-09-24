@@ -1,5 +1,6 @@
 use crate::ddl::generate_semantic_ddl;
 use crate::export::{self, OSSIE_VERSION};
+use crate::binding;
 use crate::model::*;
 use crate::platform;
 use crate::release;
@@ -117,6 +118,12 @@ struct CreateTenantReq {
 #[derive(Deserialize)]
 struct SettingsReq {
     values: std::collections::BTreeMap<String, String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DeployToBindingReq {
+    environment: String,
 }
 
 #[derive(Deserialize)]
@@ -340,6 +347,19 @@ pub fn router(pool: AnyPool) -> Router {
         .route(
             "/api/projects/{project_id}/semantic/deploy-to-source",
             post(semantic_deploy_to_source),
+        )
+        // ---- project x environment bindings (experimental, §8) ----
+        .route(
+            "/api/projects/{project_id}/bindings",
+            get(list_bindings),
+        )
+        .route(
+            "/api/projects/{project_id}/bindings/{environment}",
+            put(put_binding).delete(delete_binding),
+        )
+        .route(
+            "/api/projects/{project_id}/semantic/deploy-to-binding",
+            post(semantic_deploy_to_binding),
         )
         // ---- platform: tenants / data sources / settings ----
         .route("/api/tenants", get(list_tenants).post(create_tenant))
@@ -979,6 +999,60 @@ async fn semantic_deployment(
     let ddl = generate_semantic_ddl(&snapshot, schema);
     let statements = ddl.statements.len();
     Ok((ddl, statements))
+}
+
+// ---------------------------------------------------------------------------
+// Project x environment bindings
+// ---------------------------------------------------------------------------
+
+async fn list_bindings(
+    State(state): State<AppState>,
+    Path(project_id): Path<String>,
+) -> ApiResult<Json<Vec<binding::BindingRow>>> {
+    Ok(Json(binding::list_bindings(&state.pool, &project_id).await?))
+}
+
+async fn put_binding(
+    State(state): State<AppState>,
+    Path((project_id, environment)): Path<(String, String)>,
+    Json(input): Json<binding::BindingInput>,
+) -> ApiResult<Json<binding::BindingRow>> {
+    Ok(Json(
+        binding::put_binding(&state.pool, &project_id, &environment, &input).await?,
+    ))
+}
+
+async fn delete_binding(
+    State(state): State<AppState>,
+    Path((project_id, environment)): Path<(String, String)>,
+) -> ApiResult<Json<Value>> {
+    binding::delete_binding(&state.pool, &project_id, &environment).await?;
+    Ok(Json(json!({ "deleted": true })))
+}
+
+/// Deploys the semantic layer through the project's binding for an environment —
+/// the coordinate/credential lookup happens here instead of in the request body.
+async fn semantic_deploy_to_binding(
+    State(state): State<AppState>,
+    Path(project_id): Path<String>,
+    Json(req): Json<DeployToBindingReq>,
+) -> ApiResult<Json<DeployView>> {
+    let Some(row) = binding::get_binding(&state.pool, &project_id, &req.environment).await?
+    else {
+        return Err(ApiError::Bad(format!(
+            "environment `{}` is not bound; configure a binding first",
+            req.environment
+        )));
+    };
+    let connection = platform::get_data_source(&state.pool, &row.connection_id).await?;
+    let (ddl, statements) =
+        semantic_deployment(&state.pool, &project_id, &row.namespace).await?;
+    let applied = apply_ddl(&connection.connection_url(), &ddl.statements).await?;
+    Ok(Json(DeployView {
+        applied,
+        statements,
+        sql: ddl.sql,
+    }))
 }
 
 async fn apply_ddl(connection_url: &str, statements: &[String]) -> ApiResult<bool> {

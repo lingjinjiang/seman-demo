@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import {
   DatasetForm,
@@ -8,7 +8,16 @@ import {
 import { Modal } from "../components/Modal";
 import { DataTable, PageHeader, Tabs, type Column } from "../components/ui";
 import { VersionBar } from "../components/VersionBar";
-import type { Artifact, DataSource, Issue, ProjectVersion } from "../types";
+import type {
+  Artifact,
+  Binding,
+  DataSource,
+  Issue,
+  ProjectVersion
+} from "../types";
+
+/** Environments a project can be bound to (mirrors the backend `ENVIRONMENTS`). */
+const ENVIRONMENTS = ["dev", "test", "prod"];
 
 type TabKey = "datasets" | "relationships" | "metrics" | "ddl" | "raw";
 
@@ -59,7 +68,13 @@ export function SemanticPage({
   const [issues, setIssues] = useState<Issue[]>([]);
   const [sources, setSources] = useState<DataSource[]>([]);
   const [schema, setSchema] = useState("public");
-  const [sourceId, setSourceId] = useState("");
+  const [bindings, setBindings] = useState<Binding[]>([]);
+  const [bindingEdit, setBindingEdit] = useState<string | null>(null);
+  const [bindingForm, setBindingForm] = useState({
+    connectionId: "",
+    namespace: ""
+  });
+  const [deployEnv, setDeployEnv] = useState("dev");
   const [ddl, setDdl] = useState<string>("");
   const [raw, setRaw] = useState<string>("");
   const [notice, setNotice] = useState<string | null>(null);
@@ -85,12 +100,21 @@ export function SemanticPage({
   useEffect(() => {
     api
       .listDataSources(tenant)
-      .then((rows) => {
-        setSources(rows);
-        setSourceId((current) => current || rows[0]?.id || "");
-      })
+      .then(setSources)
       .catch(() => setSources([]));
   }, [tenant]);
+
+  const loadBindings = useCallback(async () => {
+    try {
+      setBindings(await api.listBindings(projectId));
+    } catch {
+      setBindings([]);
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    loadBindings();
+  }, [loadBindings]);
 
   useEffect(() => {
     if (tab !== "raw") return;
@@ -156,19 +180,84 @@ export function SemanticPage({
     }
   };
 
-  const deploy = async () => {
-    if (!sourceId) {
-      setError("请先在「数据源」页面注册一个 PostgreSQL 数据源");
+  const bindingByEnv = useMemo(() => {
+    const map: Record<string, Binding> = {};
+    for (const b of bindings) map[b.environment] = b;
+    return map;
+  }, [bindings]);
+
+  const connectionName = (id: string) =>
+    sources.find((s) => s.id === id)?.name || id.slice(0, 8);
+
+  const openBindingEditor = (environment: string) => {
+    const existing = bindingByEnv[environment];
+    setBindingForm({
+      connectionId: existing?.connectionId || sources[0]?.id || "",
+      namespace: existing?.namespace || ""
+    });
+    setError(null);
+    setBindingEdit(environment);
+  };
+
+  const saveBinding = async () => {
+    if (!bindingEdit) return;
+    if (!bindingForm.connectionId) {
+      setError("请先在「数据源」页面注册一个 PostgreSQL 连接");
       return;
     }
-    if (!confirm(`将语义层部署到所选数据源的 schema「${schema}」？`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.putBinding(projectId, bindingEdit, {
+        connectionId: bindingForm.connectionId,
+        namespace: bindingForm.namespace.trim()
+      });
+      await loadBindings();
+      setBindingEdit(null);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeBinding = async (environment: string) => {
+    if (!confirm(`解除环境 ${environment} 的绑定？`)) return;
+    setBusy(true);
+    try {
+      await api.deleteBinding(projectId, environment);
+      await loadBindings();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Deploy through the environment's binding — coordinates and credential come
+   *  from the platform, never from the request. */
+  const deployByBinding = async (environment: string) => {
+    const binding = bindingByEnv[environment];
+    if (!binding) {
+      setError(`环境 ${environment} 还没有绑定，先配置绑定`);
+      return;
+    }
+    if (
+      !confirm(
+        `将语义层部署到 ${environment}？\n连接：${connectionName(
+          binding.connectionId
+        )}\n命名空间：${binding.namespace}`
+      )
+    ) {
+      return;
+    }
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
-      const out = await api.semanticDeployToSource(projectId, sourceId, schema);
+      const out = await api.semanticDeployToBinding(projectId, environment);
       setDdl(out.sql);
-      setNotice(`部署完成，执行 ${out.statements} 条语句`);
+      setNotice(`已部署到 ${environment}，执行 ${out.statements} 条语句`);
     } catch (e: any) {
       setError(e.message);
       setIssues(e.issues || []);
@@ -463,35 +552,136 @@ export function SemanticPage({
 
       {tab === "ddl" && (
         <div className="stack">
+          {/* Binding: the only data-access config that differs per project.
+              The connection itself is tenant-level and shared. */}
+          <div className="panel panel-pad">
+            <div className="row" style={{ marginBottom: 10 }}>
+              <div className="panel-title" style={{ margin: 0 }}>
+                环境绑定
+              </div>
+              <span
+                className="badge warn"
+                title="绑定粒度仍在调整中：凭证尚未独立，逐表覆盖未实现"
+              >
+                试验性
+              </span>
+              <span className="spacer" />
+              <span className="hint" style={{ margin: 0 }}>
+                连接是租户级资产（一份库被多个项目共用）；命名空间按项目区分
+              </span>
+            </div>
+            <DataTable
+              columns={[
+                {
+                  key: "environment",
+                  header: "环境",
+                  width: "110px",
+                  render: (row) => <span className="badge">{row.environment}</span>
+                },
+                {
+                  key: "connection",
+                  header: "连接",
+                  render: (row) =>
+                    row.binding ? (
+                      <span className="mono">
+                        {connectionName(row.binding.connectionId)}
+                      </span>
+                    ) : (
+                      <span className="muted">未绑定</span>
+                    )
+                },
+                {
+                  key: "namespace",
+                  header: "命名空间",
+                  width: "160px",
+                  render: (row) =>
+                    row.binding ? (
+                      <span className="mono">{row.binding.namespace}</span>
+                    ) : (
+                      <span className="muted">—</span>
+                    )
+                },
+                {
+                  key: "actions",
+                  header: "",
+                  width: "160px",
+                  align: "right",
+                  render: (row) => (
+                    <span
+                      className="cell-actions"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        className="sm"
+                        onClick={() => openBindingEditor(row.environment)}
+                      >
+                        {row.binding ? "编辑" : "绑定"}
+                      </button>{" "}
+                      {row.binding && (
+                        <button
+                          className="sm danger"
+                          disabled={busy}
+                          onClick={() => removeBinding(row.environment)}
+                        >
+                          解除
+                        </button>
+                      )}
+                    </span>
+                  )
+                }
+              ]}
+              rows={ENVIRONMENTS.map((environment) => ({
+                environment,
+                binding: bindingByEnv[environment]
+              }))}
+              rowKey={(row) => row.environment}
+            />
+          </div>
+
           <div className="panel panel-pad">
             <div className="panel-title">生成与部署</div>
             <div className="split">
               <label>
-                目标 schema
-                <input value={schema} onChange={(e) => setSchema(e.target.value)} />
-              </label>
-              <label>
-                目标数据源（PostgreSQL）
-                <select value={sourceId} onChange={(e) => setSourceId(e.target.value)}>
-                  <option value="">未选择</option>
-                  {sources.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}（{s.host}:{s.port}/{s.database}）
+                目标环境
+                <select
+                  value={deployEnv}
+                  onChange={(e) => {
+                    setDeployEnv(e.target.value);
+                    const b = bindingByEnv[e.target.value];
+                    if (b) setSchema(b.namespace);
+                  }}
+                >
+                  {ENVIRONMENTS.map((env) => (
+                    <option key={env} value={env}>
+                      {env}
+                      {bindingByEnv[env] ? "" : "（未绑定）"}
                     </option>
                   ))}
                 </select>
+              </label>
+              <label>
+                该环境的命名空间（来自绑定）
+                <input
+                  value={bindingByEnv[deployEnv]?.namespace || ""}
+                  readOnly
+                  placeholder="未绑定"
+                />
               </label>
             </div>
             <div className="row" style={{ marginTop: 12 }}>
               <button onClick={previewDdl} disabled={busy}>
                 生成 DDL 预览
               </button>
-              <button className="primary" onClick={deploy} disabled={busy}>
-                部署到数据源
+              <button
+                className="primary"
+                onClick={() => deployByBinding(deployEnv)}
+                disabled={busy || !bindingByEnv[deployEnv]}
+              >
+                部署到 {deployEnv}
               </button>
-              {sources.length === 0 && (
+              {!bindingByEnv[deployEnv] && (
                 <span className="hint" style={{ margin: 0 }}>
-                  尚无数据源，请先在「数据源」页面注册
+                  该环境还没有绑定，先在上面的「环境绑定」里配置
                 </span>
               )}
             </div>
@@ -584,6 +774,66 @@ export function SemanticPage({
                 onCancel={() => setEditing(null)}
               />
             )}
+          </div>
+        </Modal>
+      )}
+
+      {bindingEdit && (
+        <Modal
+          title={`环境绑定 · ${bindingEdit}`}
+          onClose={() => setBindingEdit(null)}
+        >
+          <div className="form">
+            <div className="hint" style={{ margin: 0 }}>
+              连接是租户级资产，一份库可以被多个项目共用；这里只决定
+              <strong> 本项目在 {bindingEdit} 环境下用哪个连接、落在哪个命名空间</strong>。
+              <br />
+              ⚠️ 试验性：凭证目前随连接，逐表覆盖尚未实现。
+            </div>
+            <label>
+              连接（PostgreSQL）
+              <select
+                value={bindingForm.connectionId}
+                onChange={(e) =>
+                  setBindingForm({ ...bindingForm, connectionId: e.target.value })
+                }
+              >
+                <option value="">选择连接</option>
+                {sources.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}（{s.host}:{s.port}/{s.database}）
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              命名空间（默认 schema）
+              <input
+                value={bindingForm.namespace}
+                placeholder="留空则用连接的默认 schema"
+                onChange={(e) =>
+                  setBindingForm({ ...bindingForm, namespace: e.target.value })
+                }
+              />
+            </label>
+            {sources.length === 0 && (
+              <div className="warn-text">
+                还没有连接，请先到「数据源」页面注册一个 PostgreSQL 连接。
+              </div>
+            )}
+            {error && <div className="error-text">{error}</div>}
+            <div className="modal-actions">
+              <button onClick={() => setBindingEdit(null)} disabled={busy}>
+                取消
+              </button>
+              <button
+                className="primary"
+                onClick={saveBinding}
+                disabled={busy || !bindingForm.connectionId}
+              >
+                保存绑定
+              </button>
+            </div>
           </div>
         </Modal>
       )}

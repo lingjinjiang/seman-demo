@@ -1,4 +1,5 @@
 pub mod api;
+pub mod binding;
 pub mod db;
 pub mod ddl;
 pub mod export;

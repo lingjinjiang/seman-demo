@@ -93,11 +93,26 @@ CREATE TABLE IF NOT EXISTS releases (
     created_at  BIGINT NOT NULL
 );
 
+-- Project x environment binding: the only data-access config that differs per
+-- project. Experimental granularity, see docs/design/access-control.md §8.
+CREATE TABLE IF NOT EXISTS project_bindings (
+    id            TEXT PRIMARY KEY,
+    project_id    TEXT NOT NULL,
+    environment   TEXT NOT NULL,
+    connection_id TEXT NOT NULL,
+    credential_id TEXT,
+    namespace     TEXT NOT NULL DEFAULT 'public',
+    created_at    BIGINT NOT NULL,
+    updated_at    BIGINT NOT NULL,
+    UNIQUE (project_id, environment)
+);
+
 CREATE INDEX IF NOT EXISTS idx_commits_project ON commits (project_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_branches_project ON branches (project_id);
 CREATE INDEX IF NOT EXISTS idx_projects_tenant ON projects (tenant_id);
 CREATE INDEX IF NOT EXISTS idx_data_sources_tenant ON data_sources (tenant_id);
 CREATE INDEX IF NOT EXISTS idx_releases_project ON releases (project_id, environment, seq);
+CREATE INDEX IF NOT EXISTS idx_bindings_project ON project_bindings (project_id, environment);
 "#;
 
 /// Renames applied **before** the schema is (re)created: a database from an

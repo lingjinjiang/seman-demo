@@ -118,6 +118,9 @@ n 元虚拟实体 hub）：
 | GET/POST | `/api/projects/{id}/releases` | 发布记录列表 / 发布当前提交到环境 |
 | DELETE | `/api/projects/{id}/releases/{releaseId}` | 删除发布记录（不删提交） |
 | GET | `/api/projects/{id}/released?environment=` | **消费方只读**：该环境当前发布的 OSSIE 文档 |
+| GET | `/api/projects/{id}/bindings` | 环境绑定列表（项目 × 环境，⚠️ 试验性） |
+| PUT/DELETE | `/api/projects/{id}/bindings/{env}` | 创建/替换 / 解除某环境的绑定 |
+| POST | `/api/projects/{id}/semantic/deploy-to-binding` | 按环境绑定部署语义层 |
 
 工件 kind：`concept`、`ontology_relationship`、`dataset`、`semantic_relationship`、`metric`。
 
@@ -134,6 +137,8 @@ n 元虚拟实体 hub）：
 - **版本与发布**（内嵌在本体 / 语义模型页顶部的版本条，非独立页面）：分支切换、未提交更改、
   提交、历史与 diff、导入导出；以及**发布**——把某个提交推送到 dev / test / prod。
 - **数据源**：PostgreSQL 连接管理（坐标、默认 schema、连接测试）；**仅支持 PostgreSQL**。
+  ⚠️ 这里的「数据源」语义是**连接**（租户级资产，一份库可被多个项目共用）；
+  项目差异（用哪个连接、落在哪个命名空间）由**环境绑定**表达，见下。
 - **设置**：默认提交作者、默认部署 schema、租户管理与切换、规范版本与存储信息。
 
 **租户隔离**：项目、数据源、设置均按 `tenant_id` 隔离，同名项目可在不同租户下共存。
@@ -144,6 +149,12 @@ n 元虚拟实体 hub）：
 **开发态与应用态分离**：建模发生在工作区（draft）与分支上；发布（release）是
 `提交 × 环境` 的不可变指针，**消费方只读已发布版本**——工作区里正在改的东西不会立刻影响使用。
 回滚 = 把历史提交重新发布为一条新记录，历史永不重写。
+
+**环境绑定（⚠️ 试验性，`docs/design/access-control.md` §8）**：数据访问配置按两层分工——
+`连接`（租户级，登记一次）+ `绑定`（项目 × 环境 → 连接 + 命名空间）。
+典型场景是**一个部门一套库、多个项目各用不同 schema**：连接只登记一次，项目差异全在绑定里。
+语义模型页的「DDL / 部署」标签下可配置绑定，并按环境一键部署。
+该粒度仍会调整（凭证尚未独立成实体、逐表覆盖未实现），因此标为试验性。
 
 ```bash
 # 消费方读取某环境当前发布的模型（唯一对外读取入口）

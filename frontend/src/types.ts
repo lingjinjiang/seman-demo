@@ -63,6 +63,25 @@ export interface Release {
   createdAt: number;
 }
 
+/**
+ * Project × environment binding — which tenant-level connection this project
+ * uses in an environment, plus its own namespace.
+ *
+ * ⚠️ Experimental granularity (docs/design/access-control.md §8): credentials
+ * are still part of the connection and per-logical-name overrides are not
+ * implemented yet, so this shape is expected to change.
+ */
+export interface Binding {
+  id: string;
+  projectId: string;
+  environment: string;
+  connectionId: string;
+  credentialId?: string | null;
+  namespace: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 /** Everything the version bar and history need for one project. */
 export interface ProjectVersion {
   projectId: string;

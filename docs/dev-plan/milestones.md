@@ -39,6 +39,10 @@
 - [ ] 发布与部署联动（发布 → 按环境绑定表部署到物理库）
 - [ ] 一键回滚（在历史上选点重新发布），目前需手动选旧提交发布
 - [x] **数据源注册（PostgreSQL）**：坐标 + 默认 schema + 连接测试 + 密码脱敏，按租户隔离 —— `src/platform.rs`、`pages/DataSourcesPage.tsx`
+- [x] **环境绑定（项目 × 环境）**【⚠️ 试验性】：`src/binding.rs` + `project_bindings`；绑定驱动部署
+      （`deploy-to-binding`）。粒度可能调整，见 `access-control.md` §8
+- [ ] 凭证独立成实体 + 轮换 + 引用计数（S3）
+- [ ] 逐表绑定覆盖 `(项目, 环境, 逻辑名)`（S4，混合接入模式）
 - [x] **按数据源部署语义层**：`POST /api/repos/{id}/semantic/deploy-to-source`，连接信息不经过请求体
 - [ ] 环境一等公民 + 绑定表 + 环境克隆
 - [ ] custom_extensions 下沉 catalog 坐标（vendor_name: GRAVITINO）

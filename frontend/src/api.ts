@@ -1,5 +1,6 @@
 import type {
   Artifact,
+  Binding,
   Branch,
   Change,
   Commit,
@@ -234,5 +235,28 @@ export const api = {
   releasedUrl: (projectId: string, environment: string, format = "yaml") =>
     `/api/projects/${projectId}/released?environment=${encodeURIComponent(
       environment
-    )}&format=${format}`
+    )}&format=${format}`,
+
+  // ---- project x environment bindings (experimental, access-control §8) ----
+  listBindings: (projectId: string) =>
+    request<Binding[]>(`/api/projects/${projectId}/bindings`),
+  putBinding: (
+    projectId: string,
+    environment: string,
+    input: { connectionId: string; namespace: string }
+  ) =>
+    request<Binding>(
+      `/api/projects/${projectId}/bindings/${encodeURIComponent(environment)}`,
+      { method: "PUT", body: JSON.stringify(input) }
+    ),
+  deleteBinding: (projectId: string, environment: string) =>
+    request<{ deleted: boolean }>(
+      `/api/projects/${projectId}/bindings/${encodeURIComponent(environment)}`,
+      { method: "DELETE" }
+    ),
+  semanticDeployToBinding: (projectId: string, environment: string) =>
+    request<DeployView>(
+      `/api/projects/${projectId}/semantic/deploy-to-binding`,
+      { method: "POST", body: JSON.stringify({ environment }) }
+    )
 };
